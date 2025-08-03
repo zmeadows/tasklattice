@@ -1,4 +1,4 @@
-name: Run Lint, Type Check, and Tests
+name: Lint/Type/Test
 
 on: [push, pull_request]
 
