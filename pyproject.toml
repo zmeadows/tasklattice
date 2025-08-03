@@ -1,0 +1,31 @@
+[project]
+name = "tasklattice"
+version = "0.1.0"
+description = "Modular simulation sweep orchestrator"
+authors = [{ name = "Your Name", email = "your@email.com" }]
+requires-python = ">=3.9"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+target-version = "py38"
+line-length = 100
+exclude = ["tests/*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.9"
+check_untyped_defs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+strict = true
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-ra -q"
+testpaths = ["tests"]
