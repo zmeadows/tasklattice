@@ -1,5 +1,5 @@
+from tasklattice import Lattice
 
-from lattice import Lattice
 
 def test_lattice_creation() -> None:
     lattice = Lattice(templates=["input.yaml"])
