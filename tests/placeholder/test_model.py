@@ -1,5 +1,5 @@
 import pytest
-from tasklattice.placeholder.model import Domain, DomainInterval, DomainSet
+from tasklattice.placeholder.model import Domain, DomainInterval, DomainSet, Number
 
 
 # --- DomainInterval tests -----------------------------------------------------
@@ -24,14 +24,14 @@ from tasklattice.placeholder.model import Domain, DomainInterval, DomainSet
         (DomainInterval(0, 10, True, True), None, False),
     ],
 )
-def test_domain_interval_contains(interval, value, expected):
+def test_domain_interval_contains(interval: DomainInterval, value: Number, expected: Number) -> None:
     """Check that DomainInterval.contains enforces bounds and type rules."""
     assert interval.contains(value) is expected
 
 
 # --- DomainSet tests ----------------------------------------------------------
 
-def test_domain_set_contains_basic():
+def test_domain_set_contains_basic() -> None:
     """DomainSet should report membership for exact matches."""
     domain = DomainSet(values={1, "a", 3.14})
     assert domain.contains(1)
@@ -41,7 +41,7 @@ def test_domain_set_contains_basic():
     assert not domain.contains("b")
 
 
-def test_domain_set_contains_bool_edge_case():
+def test_domain_set_contains_bool_edge_case() -> None:
     """Booleans are distinct from ints in DomainSet membership."""
     domain = DomainSet(values={1, False})
     # True is not in the set even though True == 1 in Python
@@ -52,7 +52,7 @@ def test_domain_set_contains_bool_edge_case():
 
 # --- Abstract base class guard ------------------------------------------------
 
-def test_domain_is_abstract():
+def test_domain_is_abstract() -> None:
     """The Domain ABC should not be instantiable directly."""
     with pytest.raises(TypeError):
         Domain() # type: ignore[abstract]
