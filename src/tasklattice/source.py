@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,14 +17,27 @@ class SourceSpan:
 
 
 @dataclass(frozen=True, slots=True)
-class SourceOrigin:
+class SourceData:
     file: Path | None
     text: str
 
+    @staticmethod
+    def from_file(path: Path, encoding: str = "utf-8") -> SourceData:
+        if not path.exists():
+            raise FileNotFoundError(f"No such file: {path}")
+        if path.is_dir():
+            raise IsADirectoryError(f"Expected a file but found a directory: {path}")
+
+        try:
+            return SourceData(path, path.read_text(encoding=encoding))
+        except UnicodeDecodeError:
+            raise
+        except OSError as e:
+            raise OSError(f"Failed to read file {path}: {e}") from e
 
 @dataclass(frozen=True, slots=True)
 class SourceContext:
-    origin: SourceOrigin
+    data: SourceData
     span: SourceSpan
 
     # ---- Convenience: compute line/col only when rendering messages ----
@@ -30,7 +45,7 @@ class SourceContext:
         """
         Returns (start_line, start_col, end_line, end_col), 1-based like editors.
         """
-        text = self.origin.text
+        text = self.data.text
 
         # TODO: naive but fine for moderate files; optimize if needed
         def to_line_col(pos: int) -> tuple[int, int]:
@@ -46,5 +61,5 @@ class SourceContext:
         return (sl, sc, el, ec)
 
     def slice(self) -> str:
-        return self.origin.text[self.span.start:self.span.end]
+        return self.data.text[self.span.start:self.span.end]
 
