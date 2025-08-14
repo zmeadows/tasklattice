@@ -3,7 +3,7 @@ name = "tasklattice"
 version = "0.1.0"
 description = "Modular simulation sweep orchestrator"
 authors = [{ name = "Your Name", email = "your@email.com" }]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = []
 
 [build-system]
@@ -11,7 +11,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py311"
 line-length = 100
 exclude = ["tests/*"]
 
@@ -19,7 +19,7 @@ exclude = ["tests/*"]
 select = ["E", "F", "I", "UP"]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 check_untyped_defs = true
 disallow_untyped_defs = true
 ignore_missing_imports = true
