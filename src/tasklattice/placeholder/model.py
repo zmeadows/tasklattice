@@ -52,3 +52,13 @@ class ParamUnresolved:
     type_raw: str | None = None
     domain_raw: list[Any] | None = None
     desc: str | None = None
+
+@dataclass(slots=True)
+class ParamResolved:
+    name: str
+    value: Literal
+    domain: Domain | None = None
+    desc: str | None = None
+
+    def type(self) -> type:
+        return type(self.value)

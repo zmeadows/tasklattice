@@ -1,7 +1,13 @@
 # TaskLattice
 
 ## TODO
-- [ ] Setup basic grammar/parsing with lark 
+- [x] Setup basic grammar/parsing with lark 
+- [x] Make SourceContext class to hold span bounds and str origin
+- [ ] Make custom error class that wraps lark errors for placeholder parsing, with 'rich' library printing
+- [ ] Flush out test_parse.py
+- [ ] ParamResolved
+- [ ] validate.py
+- [ ] test_validate.py
 
 ## Notes/Ideas
 
