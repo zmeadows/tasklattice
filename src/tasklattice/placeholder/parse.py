@@ -3,16 +3,15 @@ from typing import Any
 
 from lark import Lark, ParseTree, Token, Transformer
 
-from tasklattice.source import SourceContext
-
 from .grammar import TL_GRAMMAR
 from .model import Identifier, Literal, ParamUnresolved
+from .source import Placeholder
 
 
 class _TLTransformer(Transformer[Token, ParamUnresolved]):
-    def __init__(self, src: SourceContext):
+    def __init__(self, ph: Placeholder):
         super().__init__()
-        self._src = src
+        self._ph = ph
 
     def start(self, items: list[Any]) -> ParamUnresolved:
         pu = ParamUnresolved(items[0].value, items[1])
@@ -68,6 +67,6 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
 
 _PARSER = Lark(TL_GRAMMAR, start="start", parser="lalr", propagate_positions=True)
 
-def parse_param(placeholder: SourceContext) -> ParamUnresolved:
-    tree: ParseTree = _PARSER.parse(placeholder.slice())
-    return _TLTransformer(placeholder).transform(tree)
+def parse_param(ph: Placeholder) -> ParamUnresolved:
+    tree: ParseTree = _PARSER.parse(ph.text)
+    return _TLTransformer(ph).transform(tree)

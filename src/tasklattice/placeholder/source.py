@@ -15,39 +15,60 @@ class SourceSpan:
         if self.end <= self.start:
             raise ValueError(f"SourceSpan.end ({self.end}) <= start ({self.start})")
 
-
 @dataclass(frozen=True, slots=True)
-class SourceData:
+class Source:
     file: Path | None
-    text: str
+    contents: str
+
+    def __post_init__(self) -> None:
+        if len(self.contents) == 0:
+            if self.file is not None:
+                raise ValueError(f"Empty file encountered: {self.file}.")
+            else:
+                raise ValueError("Empty source contents given.")
 
     @staticmethod
-    def from_file(path: Path, encoding: str = "utf-8") -> SourceData:
+    def create_from_file(path: Path, encoding: str = "utf-8") -> Source:
         if not path.exists():
             raise FileNotFoundError(f"No such file: {path}")
         if path.is_dir():
             raise IsADirectoryError(f"Expected a file but found a directory: {path}")
 
         try:
-            return SourceData(path, path.read_text(encoding=encoding))
+            return Source(path, path.read_text(encoding=encoding))
         except UnicodeDecodeError:
             raise
         except OSError as e:
             raise OSError(f"Failed to read file {path}: {e}") from e
 
+    def full_span(self) -> SourceSpan:
+        return SourceSpan(0, len(self.contents))
+
+    def slice(self, span: SourceSpan) -> str:
+        return self.contents[span.start:span.end]
+
 @dataclass(frozen=True, slots=True)
-class SourceContext:
-    data: SourceData
+class Placeholder:
+    text: str
+    source: Source
     span: SourceSpan
 
-    # ---- Convenience: compute line/col only when rendering messages ----
+    @staticmethod
+    def from_source(source: Source, span: SourceSpan) -> Placeholder:
+        return Placeholder(source.slice(span), source, span)
+
+    @staticmethod
+    def from_string(text: str) -> Placeholder:
+        source = Source(None, text)
+        return Placeholder(text, source, source.full_span())
+
     def line_col(self) -> tuple[int,int,int,int]:
         """
-        Returns (start_line, start_col, end_line, end_col), 1-based like editors.
+        Returns (start_line, start_col, end_line, end_col), 1-indexed like editors.
         """
-        text = self.data.text
+        text = self.source.contents
 
-        # TODO: naive but fine for moderate files; optimize if needed
+        # naive but fine for moderate files; optimize if needed
         def to_line_col(pos: int) -> tuple[int, int]:
             # count '\n' before pos
             line_start = text.rfind("\n", 0, pos) + 1
@@ -60,6 +81,4 @@ class SourceContext:
 
         return (sl, sc, el, ec)
 
-    def slice(self) -> str:
-        return self.data.text[self.span.start:self.span.end]
 

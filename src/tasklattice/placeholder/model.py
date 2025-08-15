@@ -17,7 +17,7 @@ class Domain(ABC):
     def contains(self, value: Literal) -> bool:
         ...
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class DomainInterval(Domain):
     lower: Number
     upper: Number
@@ -35,7 +35,7 @@ class DomainInterval(Domain):
 
         return True
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class DomainSet(Domain):
     values: set[Literal]
 
