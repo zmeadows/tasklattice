@@ -7,7 +7,7 @@ identifier: CNAME
 
 number: SIGNED_NUMBER
 
-string: ESCAPED_STRING
+string: /'[^']*'/
 
 ?literal: string
         | number
@@ -33,7 +33,6 @@ set: "{" [literal ("," literal)*] "}"
 
 %import common.CNAME
 %import common.SIGNED_NUMBER
-%import common.ESCAPED_STRING
 %import common.WS
 %ignore WS
 """

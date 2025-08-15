@@ -45,6 +45,7 @@ class DomainSet(Domain):
             return any(v is value for v in self.values)
         return value in self.values
 
+# TODO: rename value to default
 @dataclass(slots=True)
 class ParamUnresolved:
     name: str
