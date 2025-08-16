@@ -12,10 +12,10 @@ import pytest
 def test_number_smoke(x: Number) -> None:
     pu = parse_param(Placeholder.from_string(f"TL x = {x}"))
     assert pu.name == "x"
-    #assert type(pu.value) is type(x)
-    assert type(x) is type(pu.value)
+    #assert type(pu.default) is type(x)
+    assert type(x) is type(pu.default)
     #from math import isclose
-    #assert isclose(pu.value, x)
+    #assert isclose(pu.default, x)
     assert pu.type_raw is None
     assert pu.domain_raw is None
     assert pu.desc is None
@@ -24,8 +24,8 @@ def test_number_smoke(x: Number) -> None:
 def test_string_smoke(x: str) -> None:
     pu = parse_param(Placeholder.from_string(f"TL x = '{x}'"))
     assert pu.name == "x"
-    assert type(pu.value) is str
-    assert pu.value == x
+    assert type(pu.default) is str
+    assert pu.default == x
     assert pu.type_raw is None
     assert pu.domain_raw is None
     assert pu.desc is None
@@ -42,8 +42,8 @@ def test_string_smoke(x: str) -> None:
 def test_domain_smoke(domain_str: str, domain_parsed: list[Any]) -> None:
     pu = parse_param(Placeholder.from_string(f"TL x = 0., domain: {domain_str}"))
     assert pu.name == "x"
-    assert type(pu.value) is float
-    assert pu.value == 0.
+    assert type(pu.default) is float
+    assert pu.default == 0.
     assert pu.type_raw is None
     assert pu.domain_raw == domain_parsed
     assert pu.desc is None

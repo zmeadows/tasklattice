@@ -45,7 +45,6 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
             return float(num_str)
 
     def string(self, items: list[Token]) -> str:
-        # Unquote the ESCAPED_STRING (e.g. '"hello"' → 'hello')
         return str(literal_eval(items[0].value))
 
     def lopen(self, _: list[Token]) -> str:

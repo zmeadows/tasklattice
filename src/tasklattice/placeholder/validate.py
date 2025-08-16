@@ -4,7 +4,7 @@
 
 
 # def validate_parameter(pu: ParamUnresolved) -> ParamResolved:
-#     pr = ParamResolved(pu.name, pu.value)
+#     pr = ParamResolved(pu.name, pu.default)
 # 
 #     ALLOWED_USER_TYPES = set(["str", "int", "float", "bool"])
 # 
@@ -14,9 +14,9 @@
 # 
 #     user_type = globals()[pu.type_raw]
 # 
-#     elif pu.type_raw is None and isinstance(pu.value, int):
+#     elif pu.type_raw is None and isinstance(pu.default, int):
 #         # if user doesn't specify that values are 'int' type, let them be floats
-#         pr.value = float(pu.value)
+#         pr.default = float(pu.value)
 # 
 #     if pu.domain_raw is not None:
 #         pr.domain = validate_domain(pu.domain_raw, user_type)

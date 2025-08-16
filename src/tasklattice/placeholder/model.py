@@ -49,7 +49,7 @@ class DomainSet(Domain):
 @dataclass(slots=True)
 class ParamUnresolved:
     name: str
-    value: Literal
+    default: Literal
     type_raw: str | None = None
     domain_raw: list[Any] | None = None
     desc: str | None = None
@@ -57,9 +57,9 @@ class ParamUnresolved:
 @dataclass(slots=True)
 class ParamResolved:
     name: str
-    value: Literal
+    default: Literal
     domain: Domain | None = None
     desc: str | None = None
 
     def type(self) -> type:
-        return type(self.value)
+        return type(self.default)
