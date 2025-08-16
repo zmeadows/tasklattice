@@ -4,9 +4,14 @@ from typing import Any
 from lark import Lark, ParseTree, Token, Transformer
 
 from .grammar import TL_GRAMMAR
-from .model import Identifier, Literal, ParamUnresolved
+from .model import Identifier, Literal, Number, ParamUnresolved
 from .source import Placeholder
 
+
+def _is_integer_string(s: str) -> bool:
+    if s.startswith(("+", "-")):
+        return s[1:].isdigit()
+    return s.isdigit()
 
 class _TLTransformer(Transformer[Token, ParamUnresolved]):
     def __init__(self, ph: Placeholder):
@@ -31,8 +36,13 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
     def pair(self, items: list[Any]) -> tuple[str, Any]:
         return items[0], items[1]
 
-    def number(self, items: list[Token]) -> float:
-        return float(items[0].value)
+    def number(self, items: list[Token]) -> Number:
+        num_str = items[0].value
+
+        if _is_integer_string(num_str):
+            return int(num_str)
+        else:
+            return float(num_str)
 
     def string(self, items: list[Token]) -> str:
         # Unquote the ESCAPED_STRING (e.g. '"hello"' → 'hello')
