@@ -8,3 +8,5 @@ pytest_cache/
 .envrc
 .graveyard
 scratch
+*.egg
+*.egg-info/
