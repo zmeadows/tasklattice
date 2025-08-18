@@ -11,6 +11,15 @@ Literal = str | int | float | bool
 
 Number = int | float
 
+def type_raw_to_python_type(type_raw: Identifier) -> type | None:
+    TYPE_MAP = {
+        "str" : str,
+        "int" : int,
+        "float" : float,
+        "bool" : bool,
+    }
+
+    return TYPE_MAP.get(type_raw.value, None)
 
 class Domain(ABC):
     @abstractmethod
@@ -50,7 +59,7 @@ class DomainSet(Domain):
 class ParamUnresolved:
     name: str
     default: Literal
-    type_raw: str | None = None
+    type_raw: Identifier | None = None
     domain_raw: list[Any] | None = None
     desc: str | None = None
 
