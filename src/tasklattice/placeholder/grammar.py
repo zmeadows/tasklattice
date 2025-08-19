@@ -15,7 +15,9 @@ description_pair: "desc" ":" STRING
 INT: /[+-]?\d+/
 FLOAT: /[+-]?(?:\d+\.\d*|\.\d+)(?:[eE][+-]?\d+)?|[+-]?\d+(?:[eE][+-]?\d+)/
 
-STRING: ESCAPED_STRING
+DQUOTE_STRING: /"(\\.|[^"\\])*"/
+SQUOTE_STRING: /'(\\.|[^'\\])*'/
+STRING: DQUOTE_STRING | SQUOTE_STRING
 
 BOOLEAN_TRUE: /(?i:true)/
 BOOLEAN_FALSE: /(?i:false)/
@@ -33,6 +35,5 @@ set_elem: number | STRING
 IDENTIFIER: /[A-Za-z_][A-Za-z0-9_]*/
 
 %import common.WS
-%import common.ESCAPED_STRING
 %ignore WS
 """
