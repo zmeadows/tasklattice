@@ -108,3 +108,8 @@ _PARSER = Lark(
 def parse_param(ph: Placeholder) -> ParamUnresolved:
     tree: ParseTree = _PARSER.parse(ph.text)
     return _TLTransformer(ph).transform(tree)
+
+def parse_param_str(ph_str: str) -> ParamUnresolved:
+    ph = Placeholder.from_string(ph_str)
+    tree: ParseTree = _PARSER.parse(ph.text)
+    return _TLTransformer(ph).transform(tree)

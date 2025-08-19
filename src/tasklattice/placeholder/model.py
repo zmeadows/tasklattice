@@ -75,7 +75,7 @@ class ParamUnresolved:
 class ParamResolved:
     name: str
     default: Literal
-    py_type: type = field(init=False, repr=True, compare=False)
+    py_type: type[Literal] = field(init=False, repr=True, compare=False)
     domain: Domain | None = None
     description: str | None = None
 
