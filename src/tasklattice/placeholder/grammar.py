@@ -1,38 +1,38 @@
 TL_GRAMMAR = r"""
-start: "TL" identifier "=" literal ("," pair)*
+start: "TL" IDENTIFIER "=" literal ("," pair)*
 
-pair: identifier ":" meta_value
+pair: domain_pair
+    | type_pair
+    | description_pair
 
-identifier: CNAME
+domain_pair: "domain" ":" (interval | set)
+type_pair: "type" ":" IDENTIFIER
+description_pair: "desc" ":" STRING
 
-number: SIGNED_NUMBER
+?literal: STRING | number | boolean
+?number: INT | FLOAT
 
-string: /'[^']*'/
+INT: /[+-]?\d+/
+FLOAT: /[+-]?(?:\d+\.\d*|\.\d+)(?:[eE][+-]?\d+)?|[+-]?\d+(?:[eE][+-]?\d+)/
 
-?literal: string
-        | number
-        | boolean
+STRING: ESCAPED_STRING
 
-boolean: "true"                -> true
-       | "false"               -> false
+BOOLEAN_TRUE: /(?i:true)/
+BOOLEAN_FALSE: /(?i:false)/
+boolean: BOOLEAN_TRUE -> true
+       | BOOLEAN_FALSE -> false
 
-?meta_value: literal
-           | interval
-           | set
-           | identifier
+interval: LPAR number "," number RPAR
 
-interval: lpar number "," number rpar
+LPAR: "(" | "["
+RPAR: ")" | "]"
 
-lpar: "(" -> lopen
-    | "[" -> lclosed
+set: "{" [set_elem ("," set_elem)*] "}"
+set_elem: number | STRING
 
-rpar: ")" -> ropen
-    | "]" -> rclosed
+IDENTIFIER: /[A-Za-z_][A-Za-z0-9_]*/
 
-set: "{" [literal ("," literal)*] "}"
-
-%import common.CNAME
-%import common.SIGNED_NUMBER
 %import common.WS
+%import common.ESCAPED_STRING
 %ignore WS
 """

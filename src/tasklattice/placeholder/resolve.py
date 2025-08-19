@@ -1,32 +1,60 @@
-#from typing import Any
-
-#from .model import Domain, DomainSet, Number, ParamResolved, ParamUnresolved
-
-
-# def validate_parameter(pu: ParamUnresolved) -> ParamResolved:
-#     pr = ParamResolved(pu.name, pu.default)
+# import math
+# from typing import Any
 # 
-#     ALLOWED_USER_TYPES = set(["str", "int", "float", "bool"])
+# from .model import Literal, ParamResolved, ParamUnresolved
 # 
-#     if pu.type_raw is not None and pu.type_raw not in ALLOWED_USER_TYPES:
-#         #TODO: expand to custom error type
-#         raise RuntimeError("Invalid Type: " + pu.type_raw)
 # 
-#     user_type = globals()[pu.type_raw]
+# def _int_to_float_checked(x: int) -> float:
+#     f = float(x)
 # 
-#     elif pu.type_raw is None and isinstance(pu.default, int):
-#         # if user doesn't specify that values are 'int' type, let them be floats
-#         pr.default = float(pu.value)
+#     if math.isinf(f):
+#         raise OverflowError(f"Integer {x} too large to represent as float")
 # 
-#     if pu.domain_raw is not None:
-#         pr.domain = validate_domain(pu.domain_raw, user_type)
+#     if int(f) != x:
+#         # This means the float couldn't exactly store the integer
+#         print(f"Warning: integer {x} not exactly representable as float ({f})")
 # 
-#     return pr
+#     return f
 # 
-# def validate_domain(_: list[Any], ptype: type) -> Domain:
-#     #TODO:
-#     return DomainSet(set())
+# def _resolve_default(default: Literal, user_type: type[Literal] | None):
+#     if user_type is None and type(default) is int:
+#         return _int_to_float_checked(default)
+#     elif user_type is None or type(default) is user_type:
+#         return default
+#     elif type(default) is int and user_type is float:
+#         return _int_to_float_checked(default)
+#     elif type(default) is not user_type:
+#         raise ValueError(
+#             f"""Unable to represent user-specified default ({default})
+#                 as user-specified type ({user_type})"""
+#         )
 # 
-# def infer_number_type(num: Number) -> Number:
-#     #TODO:
-#     return num
+#     return default
+# 
+# def _resolve_domain(domain_raw: Any, user_type: type[Literal] | None) -> None:
+#     # TODO:
+#     return None
+# 
+# def resolve_parameter(pu: ParamUnresolved) -> ParamResolved:
+#     ALLOWED_USER_TYPES = {
+#         "str" : str,
+#         "float" : float,
+#         "int" : int,
+#         "bool" : bool,
+#     }
+# 
+# 
+#     user_type = None
+#     if pu.py_type_raw is not None:
+#         user_type = ALLOWED_USER_TYPES.get(pu.py_type_raw, None)
+# 
+#         if user_type is None:
+#             raise RuntimeError(f"Unknown user-specified type label: {pu.py_type_raw}")
+# 
+#     return ParamResolved(
+#         name=pu.name,
+#         default=_resolve_default(pu.default, user_type),
+#         domain=_resolve_domain(pu.domain_raw, user_type),
+#         description=None
+#     )
+# 

@@ -1,17 +1,15 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
-
-
-@dataclass(frozen=True, slots=True)
-class Identifier:
-    value: str
-
-Literal = str | int | float | bool
 
 Number = int | float
 
-def type_raw_to_python_type(type_raw: Identifier) -> type | None:
+Literal = str | Number | bool
+
+SetLiteral = str | Number
+
+# TODO: rename
+def type_raw_to_python_type(type_raw: str) -> type | None:
     TYPE_MAP = {
         "str" : str,
         "int" : int,
@@ -19,7 +17,7 @@ def type_raw_to_python_type(type_raw: Identifier) -> type | None:
         "bool" : bool,
     }
 
-    return TYPE_MAP.get(type_raw.value, None)
+    return TYPE_MAP.get(type_raw, None)
 
 class Domain(ABC):
     @abstractmethod
@@ -34,7 +32,7 @@ class DomainInterval(Domain):
     inclusive_upper: bool
 
     def contains(self, value: Literal) -> bool:
-        if not isinstance(value, int | float) or isinstance(value, bool):
+        if not isinstance(value, Number) or isinstance(value, bool):
             return False
 
         if (value < self.lower) or (value == self.lower and not self.inclusive_lower):
@@ -45,29 +43,42 @@ class DomainInterval(Domain):
         return True
 
 @dataclass(frozen=True, slots=True)
-class DomainSet(Domain):
-    values: set[Literal]
+class DomainIntervalUnresolved:
+    lower: Number
+    upper: Number
+    lpar: str
+    rpar: str
 
-    def contains(self, value: Literal) -> bool:
+@dataclass(frozen=True, slots=True)
+class DomainSet(Domain):
+    values: set[SetLiteral]
+
+    def contains(self, value: SetLiteral) -> bool:
         if isinstance(value, bool):
+            # TODO: rethink behavior here and capture in test suite
             # Require exact identity match for bools
             return any(v is value for v in self.values)
         return value in self.values
 
 @dataclass(frozen=True, slots=True)
+class DomainSetUnresolved:
+    entries: list[SetLiteral]
+
+@dataclass(frozen=True, slots=True)
 class ParamUnresolved:
     name: str
     default: Literal
-    type_raw: Identifier | None = None
-    domain_raw: list[Any] | None = None
+    py_type: str | None = None
+    domain: DomainIntervalUnresolved | DomainSetUnresolved | None = None
     description: str | None = None
 
 @dataclass(frozen=True, slots=True)
 class ParamResolved:
     name: str
     default: Literal
+    py_type: type = field(init=False, repr=True, compare=False)
     domain: Domain | None = None
     description: str | None = None
 
-    def type(self) -> type:
-        return type(self.default)
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "py_type", type(self.default))
