@@ -4,7 +4,7 @@ from typing import Any
 
 from tasklattice.placeholder.source import Placeholder
 from tasklattice.placeholder.parse import parse_param
-from tasklattice.placeholder.model import Number, Literal, Identifier, type_raw_to_python_type
+from tasklattice.placeholder.model import Number, Identifier, type_raw_to_python_type
 
 import pytest
 
@@ -12,10 +12,7 @@ import pytest
 def test_parse_number_smoke(x: Number) -> None:
     pu = parse_param(Placeholder.from_string(f"TL x = {x}"))
     assert pu.name == "x"
-    #assert type(pu.default) is type(x)
     assert type(x) is type(pu.default)
-    #from math import isclose
-    #assert isclose(pu.default, x)
     assert pu.type_raw is None
     assert pu.domain_raw is None
     assert pu.desc is None
