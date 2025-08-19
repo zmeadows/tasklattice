@@ -19,19 +19,22 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
         self._ph = ph
 
     def start(self, items: list[Any]) -> ParamUnresolved:
-        pu = ParamUnresolved(items[0].value, items[1])
+        meta_pairs = dict((k.value, v) for (k,v) in items[2:])
 
-        for tag, contents in items[2:]:
-            if tag.value == "type":
-                pu.type_raw = contents
-            elif tag.value == "domain":
-                pu.domain_raw = contents
-            elif tag.value == "desc":
-                pu.desc = contents
-            else:
-                raise ValueError(f"Unknown placeholder tag: {tag.value}")
+        ALLOWED_META_LABELS = set(["type", "domain", "desc"])
 
-        return pu
+        unknown_meta_labels = set(meta_pairs.keys()) - ALLOWED_META_LABELS
+
+        if unknown_meta_labels:
+            raise ValueError(f"Unknown placeholder meta identifiers: {unknown_meta_labels}") 
+
+        return ParamUnresolved(
+            name=items[0].value,
+            default=items[1],
+            type_raw=meta_pairs.get("type", None),
+            domain_raw=meta_pairs.get("domain", None),
+            description=meta_pairs.get("desc", None)
+        )
 
     def pair(self, items: list[Any]) -> tuple[str, Any]:
         return items[0], items[1]

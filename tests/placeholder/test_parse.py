@@ -15,7 +15,7 @@ def test_parse_number_smoke(x: Number) -> None:
     assert type(x) is type(pu.default)
     assert pu.type_raw is None
     assert pu.domain_raw is None
-    assert pu.desc is None
+    assert pu.description is None
 
 @pytest.mark.parametrize("x", ["", "asdf", "foo", "bar"])
 def test_parse_string_smoke(x: str) -> None:
@@ -25,7 +25,7 @@ def test_parse_string_smoke(x: str) -> None:
     assert pu.default == x
     assert pu.type_raw is None
     assert pu.domain_raw is None
-    assert pu.desc is None
+    assert pu.description is None
 
 @pytest.mark.parametrize(
     "domain_str,domain_parsed,domain_type",
@@ -46,7 +46,7 @@ def test_parse_domain_types_smoke(domain_str: str, domain_parsed: list[Any], dom
     assert pu.default == 0.
     assert pu.type_raw is None
     assert pu.domain_raw == domain_parsed
-    assert pu.desc is None
+    assert pu.description is None
 
 def test_parse_bool_smoke() -> None:
     pu = parse_param(Placeholder.from_string(f"TL baz = true, desc: 'just some bool', type: bool"))
@@ -61,5 +61,5 @@ def test_parse_bool_smoke() -> None:
     assert pu.default == True
     assert type(pu.type_raw) is Identifier
     assert pu.domain_raw is None
-    assert pu.desc == "just some bool"
+    assert pu.description == "just some bool"
 

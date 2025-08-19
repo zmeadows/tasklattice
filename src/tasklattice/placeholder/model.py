@@ -54,21 +54,20 @@ class DomainSet(Domain):
             return any(v is value for v in self.values)
         return value in self.values
 
-# TODO: rename value to default
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ParamUnresolved:
     name: str
     default: Literal
     type_raw: Identifier | None = None
     domain_raw: list[Any] | None = None
-    desc: str | None = None
+    description: str | None = None
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ParamResolved:
     name: str
     default: Literal
     domain: Domain | None = None
-    desc: str | None = None
+    description: str | None = None
 
     def type(self) -> type:
         return type(self.default)

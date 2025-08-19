@@ -20,5 +20,5 @@
 - [ ] Generic results post-processing utilities (mostly just looping over results directories)
 
 ### Potential Features
-- [] generic optimzation routine on top of TaskLattice basics?
+- [ ] generic optimization routine on top of TaskLattice basics?
 
