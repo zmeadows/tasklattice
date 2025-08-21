@@ -9,9 +9,9 @@ from .model import (
     DomainSetUnresolved,
     Number,
     ParamUnresolved,
+    Placeholder,
     SetLiteral,
 )
-from .source import Placeholder
 
 
 class _TLTransformer(Transformer[Token, ParamUnresolved]):
@@ -56,11 +56,11 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
     def IDENTIFIER(self, tok: Token) -> str:
         return str(tok.value)
 
-    def LPAR(self, tok: Token) -> str:
-        return str(tok.value)
+    #def LPAR(self, tok: Token) -> str:
+    #    return str(tok.value)
 
-    def RPAR(self, tok: Token) -> str:
-        return str(tok.value)
+    #def RPAR(self, tok: Token) -> str:
+    #    return str(tok.value)
 
     def number(self, items: list[Number]) -> int | float:
         return items[0]

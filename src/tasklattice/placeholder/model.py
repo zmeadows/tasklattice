@@ -1,5 +1,31 @@
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+
+from tasklattice.source import Source, SourceSpan
+
+
+@dataclass(frozen=True, slots=True)
+class Placeholder:
+    text: str
+    source: Source
+    span: SourceSpan
+
+    @staticmethod
+    def from_source(source: Source, span: SourceSpan) -> Placeholder:
+        return Placeholder(source.slice(span), source, span)
+
+    @staticmethod
+    def from_string(text: str) -> Placeholder:
+        source = Source(None, text)
+        return Placeholder(text, source, source.full_span())
+
+    def line_col(self) -> tuple[int, int, int, int]:
+        sl, sc = self.source.pos_to_line_col(self.span.start)
+        el, ec = self.source.pos_to_line_col(self.span.end)
+        return (sl, sc, el, ec)
+
 
 Number = int | float
 
@@ -81,3 +107,5 @@ class ParamResolved:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "py_type", type(self.default))
+
+

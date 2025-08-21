@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 
@@ -15,10 +15,24 @@ class SourceSpan:
         if self.end <= self.start:
             raise ValueError(f"SourceSpan.end ({self.end}) <= start ({self.start})")
 
+
+def _compute_line_starts(s: str) -> tuple[int, ...]:
+    # Start of each line (1st line starts at 0). Handles \n, \r\n, \r via splitlines.
+    starts = [0]
+    pos = 0
+    for part in s.splitlines(keepends=True):
+        pos += len(part)
+        starts.append(pos)
+    return tuple(starts)
+
 @dataclass(frozen=True, slots=True)
 class Source:
     file: Path | None
     contents: str
+
+    _line_starts: tuple[int, ...] | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         if len(self.contents) == 0:
@@ -47,38 +61,18 @@ class Source:
     def slice(self, span: SourceSpan) -> str:
         return self.contents[span.start:span.end]
 
-@dataclass(frozen=True, slots=True)
-class Placeholder:
-    text: str
-    source: Source
-    span: SourceSpan
+    @property
+    def line_starts(self) -> tuple[int, ...]:
+        ls = self._line_starts
+        if ls is None:
+            ls = _compute_line_starts(self.contents)
+            # works for both frozen and non-frozen dataclasses
+            object.__setattr__(self, "_line_starts", ls)
+        return ls
 
-    @staticmethod
-    def from_source(source: Source, span: SourceSpan) -> Placeholder:
-        return Placeholder(source.slice(span), source, span)
-
-    @staticmethod
-    def from_string(text: str) -> Placeholder:
-        source = Source(None, text)
-        return Placeholder(text, source, source.full_span())
-
-    def line_col(self) -> tuple[int,int,int,int]:
-        """
-        Returns (start_line, start_col, end_line, end_col), 1-indexed like editors.
-        """
-        text = self.source.contents
-
-        # naive but fine for moderate files; optimize if needed
-        def to_line_col(pos: int) -> tuple[int, int]:
-            # count '\n' before pos
-            line_start = text.rfind("\n", 0, pos) + 1
-            line_num = text.count("\n", 0, pos) + 1
-            col_num = (pos - line_start) + 1
-            return (line_num, col_num)
-
-        sl, sc = to_line_col(self.span.start)
-        el, ec = to_line_col(self.span.end)
-
-        return (sl, sc, el, ec)
-
+    def pos_to_line_col(self, pos: int) -> tuple[int, int]:
+        import bisect
+        ls = self.line_starts
+        line_idx = bisect.bisect_right(ls, pos) - 1
+        return (line_idx + 1, (pos - ls[line_idx]) + 1)
 
