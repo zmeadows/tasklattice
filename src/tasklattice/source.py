@@ -37,7 +37,6 @@ class Source:
     )
 
     def __post_init__(self) -> None:
-        # TODO: add tests to cover this
         if len(self.contents) == 0:
             if self.file is not None:
                 raise ValueError(f"Empty file encountered: {self.file}.")
@@ -50,7 +49,7 @@ class Source:
 
         if not path.exists():
             raise FileNotFoundError(f"No such file: {path}")
-        if path.is_dir():
+        elif path.is_dir():
             raise IsADirectoryError(f"Expected a file but found a directory: {path}")
 
         try:

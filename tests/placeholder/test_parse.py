@@ -8,7 +8,7 @@ import pytest
 @pytest.mark.parametrize("x", [1.5, -1.5, 0., int(0), int(-1), int(1)])
 def test_parse_number_smoke(x: Number) -> None:
     pu = parse_param_str(f"TL x = {x}")
-    assert pu.name == "x"
+    assert str(pu.name) == "x"
     assert type(x) is type(pu.default)
     assert pu.py_type is None
     assert pu.domain is None
@@ -17,7 +17,7 @@ def test_parse_number_smoke(x: Number) -> None:
 @pytest.mark.parametrize("x", ["", "asdf", "foo", "bar"])
 def test_parse_string_smoke(x: str) -> None:
     pu = parse_param_str(f"TL x = '{x}'")
-    assert pu.name == "x"
+    assert str(pu.name) == "x"
     assert type(pu.default) is str
     assert pu.default == x
     assert pu.py_type is None
@@ -38,7 +38,7 @@ def test_parse_domain_types_smoke(
         domain_parsed: DomainIntervalUnresolved,
         domain_type: type) -> None:
     pu = parse_param_str(f"TL x = 0., domain: {domain_str}")
-    assert pu.name == "x"
+    assert str(pu.name) == "x"
     assert type(pu.domain) is DomainIntervalUnresolved
     assert type(pu.domain.lower) is domain_type
     assert type(pu.domain.upper) is domain_type
@@ -56,7 +56,7 @@ def test_parse_bool_smoke() -> None:
     type_actual = type_raw_to_python_type(pu.py_type)
     assert type_actual is bool
 
-    assert pu.name == "baz"
+    assert str(pu.name) == "baz"
     assert type(pu.default) is type_actual
     assert pu.default == True
     assert type(pu.py_type) is str

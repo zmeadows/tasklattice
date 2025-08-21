@@ -8,6 +8,7 @@ from .model import (
     DomainIntervalUnresolved,
     DomainSetUnresolved,
     Number,
+    ParamName,
     ParamUnresolved,
     Placeholder,
     SetLiteral,
@@ -31,7 +32,7 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
             meta_pairs[key] = value
 
         return ParamUnresolved(
-            name=items[0],
+            name=ParamName(items[0]),
             default=items[1],
             py_type=meta_pairs.get("type", None),
             domain=meta_pairs.get("domain", None),

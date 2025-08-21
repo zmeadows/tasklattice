@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from tasklattice.source import Source
 
-def test_pos_to_line_col_basic():
+def test_pos_to_line_col_basic() -> None:
     s = Source(None, "ab\nc\r\nd\n")
     # indexes: 0 1 2 3 4 5 6 7  (len=8)
     assert s.pos_to_line_col(0) == (1, 1)
