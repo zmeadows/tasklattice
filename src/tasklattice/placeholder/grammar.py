@@ -1,5 +1,7 @@
 TL_GRAMMAR = r"""
-start: "TL" IDENTIFIER "=" literal ("," pair)*
+start: OPEN_PH TL_KW param CLOSE_PH
+
+param: IDENTIFIER "=" literal ("," pair)*
 
 pair: domain_pair
     | type_pair
@@ -25,7 +27,6 @@ boolean: BOOLEAN_TRUE -> true
        | BOOLEAN_FALSE -> false
 
 interval: LPAR number "," number RPAR
-
 LPAR: "(" | "["
 RPAR: ")" | "]"
 
@@ -33,6 +34,10 @@ set: "{" [set_elem ("," set_elem)*] "}"
 set_elem: number | STRING
 
 IDENTIFIER: /[A-Za-z_][A-Za-z0-9_]*/
+
+OPEN_PH: "{{"
+CLOSE_PH: "}}"
+TL_KW: "TL"
 
 %import common.WS
 %ignore WS

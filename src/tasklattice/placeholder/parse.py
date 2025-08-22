@@ -1,12 +1,13 @@
 from ast import literal_eval
 from typing import Any
 
-from lark import Lark, ParseTree, Token, Transformer
+from lark import Lark, ParseTree, Token, Transformer, v_args
 
 from .grammar import TL_GRAMMAR
 from .model import (
     DomainIntervalUnresolved,
     DomainSetUnresolved,
+    Literal,
     Number,
     ParamName,
     ParamUnresolved,
@@ -21,10 +22,14 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
         self._ph = ph
 
     def start(self, items: list[Any]) -> ParamUnresolved:
+        return items[2] # type: ignore
+
+    @v_args(inline=True)
+    def param(self, name: str, default: Literal, *meta: list[Any]) -> ParamUnresolved:
         ALLOWED_META_LABELS = set(["type", "domain", "desc"])
 
         meta_pairs = {}
-        for key, value in items[2:]:
+        for key, value in meta:
             if key in meta_pairs:
                 raise ValueError(f"duplicate key detected: {key}")
             elif key not in ALLOWED_META_LABELS:
@@ -32,8 +37,8 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
             meta_pairs[key] = value
 
         return ParamUnresolved(
-            name=ParamName(items[0]),
-            default=items[1],
+            name=ParamName(name),
+            default=default,
             py_type=meta_pairs.get("type", None),
             domain=meta_pairs.get("domain", None),
             description=meta_pairs.get("desc", None),

@@ -6,23 +6,53 @@ from dataclasses import dataclass, field
 
 from tasklattice.source import Source, SourceSpan
 
+# Match: {{TL ...}}
+# - allows whitespace after {{ 
+# - body INCLUDES "TL" and runs up to the first "}}"
+PLACEHOLDER_RE = re.compile(
+    r"\{\{\s*(?P<body>TL\b(?:(?!\}\}).)*?)\}\}",
+    re.DOTALL,
+)
 
 @dataclass(frozen=True, slots=True)
 class Placeholder:
-    text: str
     source: Source
-    span: SourceSpan
+    span_outer: SourceSpan  # includes {{…}}
+    span_inner: SourceSpan  # TL …
+
+    @property
+    def text(self) -> str:
+        s = self.source.contents
+        return s[self.span_outer.start:self.span_outer.end]
+
+    @property
+    def inner_text(self) -> str:
+        s = self.source.contents
+        return s[self.span_inner.start:self.span_inner.end]
 
     @staticmethod
     def from_string(text: str) -> Placeholder:
-        source = Source(None, text)
-        return Placeholder(text, source, source.full_span())
+        m = PLACEHOLDER_RE.fullmatch(text)
+        if not m:
+            raise ValueError(f"Not a valid Placeholder string: {text!r}")
+        return Placeholder(
+            source=Source(file=None, contents=text),
+            span_outer=SourceSpan(0, len(text)),
+            span_inner=SourceSpan(*m.span("body")),
+        )
+
+    @staticmethod
+    def from_match(source: Source, m: re.Match[str]) -> Placeholder:
+        return Placeholder(
+            source=source,
+            span_outer=SourceSpan(m.start(), m.end()),
+            span_inner=SourceSpan(*m.span("body")),
+        )
 
     def line_col(self) -> tuple[int, int, int, int]:
-        sl, sc = self.source.pos_to_line_col(self.span.start)
-        el, ec = self.source.pos_to_line_col(self.span.end)
+        sl, sc = self.source.pos_to_line_col(self.span_outer.start)
+        el, ec = self.source.pos_to_line_col(self.span_outer.end)
         return (sl, sc, el, ec)
-
 
 Number = int | float
 
