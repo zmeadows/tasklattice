@@ -14,10 +14,6 @@ class Placeholder:
     span: SourceSpan
 
     @staticmethod
-    def from_source(source: Source, span: SourceSpan) -> Placeholder:
-        return Placeholder(source.slice(span), source, span)
-
-    @staticmethod
     def from_string(text: str) -> Placeholder:
         source = Source(None, text)
         return Placeholder(text, source, source.full_span())
