@@ -22,6 +22,7 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
         self._ph = ph
 
     def start(self, items: list[Any]) -> ParamUnresolved:
+        # TODO: clean this method signature up for clarity?
         return items[2] # type: ignore
 
     @v_args(inline=True)
