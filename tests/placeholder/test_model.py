@@ -70,10 +70,9 @@ def test_domain_is_abstract() -> None:
 #   * Raises ValueError for invalid inputs: "TL x = 1", "{{TL}}", "{{tl x=1}}" (case-sensitive), "{{TL x=}}"
 # - Placeholder.from_match:
 #   * Using a larger Source with multiple placeholders, build each Placeholder via from_match;
-#     verify .text and .inner_text slices match the Source text at the recorded spans.
+#     verify .text matches the Source text at the recorded spans.
 #
 # --- Placeholder properties & positions ---
-# - .text returns the exact "{{…}}" substring; .inner_text returns "TL …" (no braces).
 # - .line_col() with a multi-line Source:
 #   * Placeholder starting/ending on same line: columns correct
 #   * Placeholder spanning lines: start line/col and end line/col are accurate

@@ -21,12 +21,8 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
         super().__init__()
         self._ph = ph
 
-    def start(self, items: list[Any]) -> ParamUnresolved:
-        # TODO: clean this method signature up for clarity?
-        return items[2] # type: ignore
-
     @v_args(inline=True)
-    def param(self, name: str, default: Literal, *meta: list[Any]) -> ParamUnresolved:
+    def start(self, name: str, default: Literal, *meta: list[Any]) -> ParamUnresolved:
         ALLOWED_META_LABELS = set(["type", "domain", "desc"])
 
         meta_pairs = {}

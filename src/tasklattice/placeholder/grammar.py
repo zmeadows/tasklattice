@@ -1,7 +1,5 @@
 TL_GRAMMAR = r"""
-start: OPEN_PH TL_KW param CLOSE_PH
-
-param: IDENTIFIER "=" literal ("," pair)*
+start: "TL" IDENTIFIER "=" literal ("," pair)*
 
 pair: domain_pair
     | type_pair
@@ -35,8 +33,6 @@ set_elem: number | STRING
 
 IDENTIFIER: /[A-Za-z_][A-Za-z0-9_]*/
 
-OPEN_PH: "{{"
-CLOSE_PH: "}}"
 TL_KW: "TL"
 
 %import common.WS

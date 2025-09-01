@@ -17,25 +17,27 @@ PLACEHOLDER_RE = re.compile(
 @dataclass(frozen=True, slots=True)
 class Placeholder:
     source: Source
+    text: str
     span_outer: SourceSpan  # includes {{…}}
     span_inner: SourceSpan  # TL …
 
-    @property
-    def text(self) -> str:
-        s = self.source.contents
-        return s[self.span_outer.start:self.span_outer.end]
-
-    @property
-    def inner_text(self) -> str:
-        s = self.source.contents
-        return s[self.span_inner.start:self.span_inner.end]
+    @staticmethod
+    def _construct(source: Source, span_outer: SourceSpan, span_inner: SourceSpan) -> Placeholder:
+        return Placeholder(
+            source=source,
+            text=source.contents[span_inner.start:span_inner.end],
+            span_outer=span_outer,
+            span_inner=span_inner,
+        )
 
     @staticmethod
     def from_string(text: str) -> Placeholder:
+        # TODO: Allow optional profile (xml, json, etc) for testing
         m = PLACEHOLDER_RE.fullmatch(text)
         if not m:
             raise ValueError(f"Not a valid Placeholder string: {text!r}")
-        return Placeholder(
+
+        return Placeholder._construct(
             source=Source(file=None, contents=text),
             span_outer=SourceSpan(0, len(text)),
             span_inner=SourceSpan(*m.span("body")),
@@ -43,7 +45,7 @@ class Placeholder:
 
     @staticmethod
     def from_match(source: Source, m: re.Match[str]) -> Placeholder:
-        return Placeholder(
+        return Placeholder._construct(
             source=source,
             span_outer=SourceSpan(m.start(), m.end()),
             span_inner=SourceSpan(*m.span("body")),
