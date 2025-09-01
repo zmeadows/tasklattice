@@ -10,3 +10,5 @@ pytest_cache/
 scratch
 *.egg
 *.egg-info/
+*.tar.gz*
+package.sh
