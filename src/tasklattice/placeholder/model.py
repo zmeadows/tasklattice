@@ -34,7 +34,6 @@ class QuoteContext:
 @dataclass(frozen=True, slots=True)
 class Placeholder:
     source: Source
-    text: str # parameter body: TL ...
     span_outer: SourceSpan  # includes {{…}} but not surrounding quotes/whitespace
     span_inner: SourceSpan  # includes main parameter body text (TL ...) that we actually parse
     quote: QuoteContext | None # None if no symmetric quotes surround the placeholder
@@ -43,7 +42,6 @@ class Placeholder:
     def _construct(source: Source, span_outer: SourceSpan, span_inner: SourceSpan) -> Placeholder:
         return Placeholder(
             source=source,
-            text=source.slice(span_inner),
             span_outer=span_outer,
             span_inner=span_inner,
             quote=None,
@@ -69,6 +67,10 @@ class Placeholder:
             span_outer=SourceSpan.from_ints(m.start(), m.end()),
             span_inner=SourceSpan.from_ints(*m.span("body")),
         )
+
+    @property
+    def text(self) -> str:
+        return self.source.slice(self.span_inner)
 
     def line_col(self) -> tuple[int, int, int, int]:
         sl, sc = self.source.pos_to_line_col(self.span_outer.start)
