@@ -3,28 +3,51 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from os import PathLike
 from pathlib import Path
+from typing import SupportsIndex
 
+
+@dataclass(frozen=True, order=True, slots=True)
+class SourceIndex:
+    pos: int
+
+    def __int__(self) -> int:
+        return self.pos
+
+    def __add__(self, n: SupportsIndex) -> SourceIndex:
+        return SourceIndex(self.pos + int(n))
+
+    def __sub__(self, other: SupportsIndex | SourceIndex) -> int | SourceIndex:
+        if isinstance(other, SourceIndex):
+            # distance
+            return self.pos - other.pos
+        return SourceIndex(self.pos - int(other))
+
+    def __repr__(self) -> str:
+        return f"SourceIndex({self.pos})"
 
 @dataclass(frozen=True, slots=True)
 class SourceSpan:
     '''0-indexed, [start, end) half-open interval for internal slicing.'''
-    start: int  # inclusive
-    end: int    # exclusive
+    start: SourceIndex  # inclusive
+    end: SourceIndex    # exclusive
 
     def __post_init__(self) -> None:
-        if self.start < 0:
+        if self.start < SourceIndex(0):
             raise ValueError(f"SourceSpan.start cannot be negative (got {self.start})")
         if self.end <= self.start:
             raise ValueError(f"SourceSpan.end ({self.end}) <= start ({self.start})")
 
+    @classmethod
+    def from_ints(cls, start: int, end: int) -> SourceSpan:
+        return cls(SourceIndex(start), SourceIndex(end))
 
-def _compute_line_starts(s: str) -> tuple[int, ...]:
+def _compute_line_starts(s: str) -> tuple[SourceIndex, ...]:
     # Start of each line (1st line starts at 0). Handles \n, \r\n, \r via splitlines.
-    starts = [0]
+    starts = [SourceIndex(0)]
     pos = 0
     for part in s.splitlines(keepends=True):
         pos += len(part)
-        starts.append(pos)
+        starts.append(SourceIndex(pos))
     return tuple(starts)
 
 @dataclass(frozen=True, slots=True)
@@ -32,7 +55,7 @@ class Source:
     file: Path | None
     contents: str
 
-    _line_starts: tuple[int, ...] | None = field(
+    _line_starts: tuple[SourceIndex, ...] | None = field(
         default=None, init=False, repr=False, compare=False
     )
 
@@ -60,15 +83,15 @@ class Source:
             raise OSError(f"Failed to read file {path}: {e}") from e
 
     def full_span(self) -> SourceSpan:
-        return SourceSpan(0, len(self.contents))
+        return SourceSpan.from_ints(0, len(self.contents))
 
     def slice(self, span: SourceSpan) -> str:
-        if not (0 <= span.start <= span.end <= len(self.contents)):
+        if not (0 <= int(span.start) <= int(span.end) <= len(self.contents)):
             raise ValueError("SourceSpan out of bounds for this Source")
-        return self.contents[span.start:span.end]
+        return self.contents[int(span.start):int(span.end)]
 
     @property
-    def line_starts(self) -> tuple[int, ...]:
+    def line_starts(self) -> tuple[SourceIndex, ...]:
         ls = self._line_starts
         if ls is None:
             ls = _compute_line_starts(self.contents)
@@ -76,12 +99,12 @@ class Source:
             object.__setattr__(self, "_line_starts", ls)
         return ls
 
-    def pos_to_line_col(self, pos: int) -> tuple[int, int]:
+    def pos_to_line_col(self, pos: SourceIndex) -> tuple[int, int]:
         '''returns 1-indexed (line, col), editor-style; accepts pos==len(contents).'''
-        if not (0 <= pos <= len(self.contents)):
+        if not (0 <= int(pos) <= len(self.contents)):
             raise ValueError(f"pos {pos} out of range [0, {len(self.contents)}]")
         import bisect
         ls = self.line_starts
         line_idx = bisect.bisect_right(ls, pos) - 1
-        return (line_idx + 1, (pos - ls[line_idx]) + 1)  # 1-indexed
+        return (line_idx + 1, int(pos - ls[line_idx]) + 1)  # 1-indexed
 

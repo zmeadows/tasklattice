@@ -6,7 +6,7 @@ from types import MappingProxyType
 from typing import TypeAlias
 
 from .placeholder.model import PLACEHOLDER_RE, ParamName, ParamResolved, Placeholder, ValueLiteral
-from .source import Source, SourceSpan
+from .source import Source, SourceIndex, SourceSpan
 
 SubstitutionMap: TypeAlias = Mapping[ParamName, ValueLiteral]
 ParamSet: TypeAlias = Mapping[ParamName, ParamResolved]
@@ -23,9 +23,9 @@ class Template:
     def from_source(source: Source) -> Template:
         elements: list[SequenceElement] = []
         params: dict[ParamName, ParamResolved] = {}
-        last = 0
+        last = SourceIndex(0)
 
-        def _append_span(start: int, end: int) -> None:
+        def _append_span(start: SourceIndex, end: SourceIndex) -> None:
             nonlocal elements
             if end > start:
                 elements.append(SourceSpan(start, end))
@@ -42,7 +42,7 @@ class Template:
 
             last = ph.span_outer.end
 
-        _append_span(last, len(source.contents))
+        _append_span(last, SourceIndex(len(source.contents)))
 
         return Template(
             source=source,

@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Literal
 
-from tasklattice.source import Source, SourceSpan
+from tasklattice.source import Source, SourceIndex, SourceSpan
 
 # Match: {{TL ...}}
 # - allows whitespace after {{ 
@@ -20,23 +20,30 @@ QuoteType = Literal["single", "double"]
 @dataclass(frozen=True, slots=True)
 class QuoteContext:
     style: QuoteType
-    span: SourceSpan
-    # True iff the placeholder fully occupies that quoted scalar
-    fully_quoted_scalar: bool
+    left_index: SourceIndex
+    right_index: SourceIndex
+
+    @property
+    def exterior(self) -> SourceSpan:
+        return SourceSpan(self.left_index, self.right_index + 1)
+
+    @property
+    def interior(self) -> SourceSpan:
+        return SourceSpan(self.left_index + 1, self.right_index)
 
 @dataclass(frozen=True, slots=True)
 class Placeholder:
     source: Source
-    text: str
-    span_outer: SourceSpan  # includes {{…}}
-    span_inner: SourceSpan  # TL …
-    quote: QuoteContext | None # None if no symmetric quotes immediately surround the placeholder
+    text: str # parameter body: TL ...
+    span_outer: SourceSpan  # includes {{…}} but not surrounding quotes/whitespace
+    span_inner: SourceSpan  # includes main parameter body text (TL ...) that we actually parse
+    quote: QuoteContext | None # None if no symmetric quotes surround the placeholder
 
     @staticmethod
     def _construct(source: Source, span_outer: SourceSpan, span_inner: SourceSpan) -> Placeholder:
         return Placeholder(
             source=source,
-            text=source.contents[span_inner.start:span_inner.end],
+            text=source.slice(span_inner),
             span_outer=span_outer,
             span_inner=span_inner,
             quote=None,
@@ -51,22 +58,29 @@ class Placeholder:
 
         return Placeholder._construct(
             source=Source(file=None, contents=text),
-            span_outer=SourceSpan(0, len(text)),
-            span_inner=SourceSpan(*m.span("body")),
+            span_outer=SourceSpan.from_ints(0, len(text)),
+            span_inner=SourceSpan.from_ints(*m.span("body")),
         )
 
     @staticmethod
     def from_match(source: Source, m: re.Match[str]) -> Placeholder:
         return Placeholder._construct(
             source=source,
-            span_outer=SourceSpan(m.start(), m.end()),
-            span_inner=SourceSpan(*m.span("body")),
+            span_outer=SourceSpan.from_ints(m.start(), m.end()),
+            span_inner=SourceSpan.from_ints(*m.span("body")),
         )
 
     def line_col(self) -> tuple[int, int, int, int]:
         sl, sc = self.source.pos_to_line_col(self.span_outer.start)
         el, ec = self.source.pos_to_line_col(self.span_outer.end)
         return (sl, sc, el, ec)
+
+    @property
+    def fills_quotes(self) -> bool:
+        if not self.quote:
+            return False
+        interior = self.source.slice(self.quote.interior)
+        return interior.strip() == self.source.slice(self.span_outer)
 
 Number = int | float
 
