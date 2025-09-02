@@ -1,0 +1,25 @@
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff
+        entry: ruff
+        language: system
+        types_or: [python]
+        args: ["check", "--fix"]
+      - id: mypy
+        name: mypy
+        entry: mypy
+        language: system
+        # Run on whole repo (safer with custom mypy_path etc.)
+        pass_filenames: false
+        args: ["--show-error-codes", "."]
+
+      # Run tests on push
+      - id: pytest
+        name: pytest (pre-push)
+        entry: pytest
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+        args: ["-q"]
