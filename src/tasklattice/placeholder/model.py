@@ -4,7 +4,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from tasklattice.placeholder.quotes import QuoteContext
+from tasklattice.placeholder.quotes import QuoteContext, detect_quote_context
 from tasklattice.source import Source, SourceSpan
 
 # Match: {{TL ...}}
@@ -28,7 +28,7 @@ class Placeholder:
             source=source,
             span_outer=span_outer,
             span_inner=span_inner,
-            quote=None,
+            quote=detect_quote_context(source, span_outer),
         )
 
     @staticmethod

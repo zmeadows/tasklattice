@@ -16,14 +16,14 @@ class SourceIndex:
     def __add__(self, n: SupportsIndex) -> SourceIndex:
         return SourceIndex(self.pos + int(n))
 
-    def __sub__(self, other: SupportsIndex | SourceIndex) -> int | SourceIndex:
-        if isinstance(other, SourceIndex):
-            # distance
-            return self.pos - other.pos
-        return SourceIndex(self.pos - int(other))
+    def __sub__(self, n: SupportsIndex) -> SourceIndex:
+        return SourceIndex(self.pos - int(n))
 
     def __repr__(self) -> str:
         return f"SourceIndex({self.pos})"
+
+    def distance(self, other: SourceIndex) -> int:
+        return self.pos - other.pos
 
 @dataclass(frozen=True, slots=True)
 class SourceSpan:
@@ -106,5 +106,5 @@ class Source:
         import bisect
         ls = self.line_starts
         line_idx = bisect.bisect_right(ls, pos) - 1
-        return (line_idx + 1, int(pos - ls[line_idx]) + 1)  # 1-indexed
+        return (line_idx + 1, int(pos) - int(ls[line_idx]) + 1)  # 1-indexed
 
