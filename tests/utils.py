@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable
+#from typing import Iterable
 
 def tl(body: str) -> str:
     """Wrap a TL body in full placeholder delimiters."""

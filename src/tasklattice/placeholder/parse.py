@@ -7,12 +7,12 @@ from .grammar import TL_GRAMMAR
 from .model import (
     DomainIntervalUnresolved,
     DomainSetUnresolved,
-    Literal,
     Number,
     ParamName,
     ParamUnresolved,
     Placeholder,
     SetLiteral,
+    ValueLiteral,
 )
 
 
@@ -22,7 +22,7 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
         self._ph = ph
 
     @v_args(inline=True)
-    def start(self, name: str, default: Literal, *meta: list[Any]) -> ParamUnresolved:
+    def start(self, name: str, default: ValueLiteral, *meta: list[Any]) -> ParamUnresolved:
         ALLOWED_META_LABELS = set(["type", "domain", "desc"])
 
         meta_pairs = {}

@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TypeAlias
 
-from .placeholder.model import PLACEHOLDER_RE, Literal, ParamName, ParamResolved, Placeholder
+from .placeholder.model import PLACEHOLDER_RE, ParamName, ParamResolved, Placeholder, ValueLiteral
 from .source import Source, SourceSpan
 
-SubstitutionMap: TypeAlias = Mapping[ParamName, Literal]
+SubstitutionMap: TypeAlias = Mapping[ParamName, ValueLiteral]
 ParamSet: TypeAlias = Mapping[ParamName, ParamResolved]
 SequenceElement: TypeAlias = SourceSpan | ParamName
 TemplateSequence: TypeAlias = tuple[SequenceElement, ...]

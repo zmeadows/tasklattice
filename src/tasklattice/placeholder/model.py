@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from typing import Literal
 
 from tasklattice.source import Source, SourceSpan
 
@@ -14,12 +15,22 @@ PLACEHOLDER_RE = re.compile(
     re.DOTALL,
 )
 
+QuoteType = Literal["single", "double"]
+
+@dataclass(frozen=True, slots=True)
+class QuoteContext:
+    style: QuoteType
+    span: SourceSpan
+    # True iff the placeholder fully occupies that quoted scalar
+    fully_quoted_scalar: bool
+
 @dataclass(frozen=True, slots=True)
 class Placeholder:
     source: Source
     text: str
     span_outer: SourceSpan  # includes {{…}}
     span_inner: SourceSpan  # TL …
+    quote: QuoteContext | None # None if no symmetric quotes immediately surround the placeholder
 
     @staticmethod
     def _construct(source: Source, span_outer: SourceSpan, span_inner: SourceSpan) -> Placeholder:
@@ -28,6 +39,7 @@ class Placeholder:
             text=source.contents[span_inner.start:span_inner.end],
             span_outer=span_outer,
             span_inner=span_inner,
+            quote=None,
         )
 
     @staticmethod
@@ -58,7 +70,7 @@ class Placeholder:
 
 Number = int | float
 
-Literal = str | Number | bool
+ValueLiteral = str | Number | bool
 
 SetLiteral = str | Number
 
@@ -75,7 +87,7 @@ def type_raw_to_python_type(type_raw: str) -> type | None:
 
 class Domain(ABC):
     @abstractmethod
-    def contains(self, value: Literal) -> bool:
+    def contains(self, value: ValueLiteral) -> bool:
         ...
 
 @dataclass(frozen=True, slots=True)
@@ -85,7 +97,7 @@ class DomainInterval(Domain):
     inclusive_lower: bool
     inclusive_upper: bool
 
-    def contains(self, value: Literal) -> bool:
+    def contains(self, value: ValueLiteral) -> bool:
         if not isinstance(value, Number) or isinstance(value, bool):
             return False
 
@@ -147,7 +159,7 @@ class ParamName:
 @dataclass(frozen=True, slots=True)
 class ParamUnresolved:
     name: ParamName
-    default: Literal
+    default: ValueLiteral
     py_type: str | None = None
     domain: DomainIntervalUnresolved | DomainSetUnresolved | None = None
     description: str | None = None
@@ -155,8 +167,8 @@ class ParamUnresolved:
 @dataclass(frozen=True, slots=True)
 class ParamResolved:
     name: ParamName
-    default: Literal
-    py_type: type[Literal] = field(init=False, repr=True, compare=False)
+    default: ValueLiteral
+    py_type: type[ValueLiteral] = field(init=False, repr=True, compare=False)
     domain: Domain | None = None
     description: str | None = None
 
