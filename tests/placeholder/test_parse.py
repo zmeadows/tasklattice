@@ -51,7 +51,7 @@ def test_parse_domain_types_smoke(
     assert pu.description is None
 
 def test_parse_bool_smoke() -> None:
-    pu = parse_param_str(tl(f"TL baz = true, desc: 'just some bool', type: bool"))
+    pu = parse_param_str(tl("TL baz = true, desc: 'just some bool', type: bool"))
 
     assert pu.py_type is not None
     assert pu.py_type == "bool"
@@ -60,7 +60,7 @@ def test_parse_bool_smoke() -> None:
 
     assert str(pu.name) == "baz"
     assert type(pu.default) is type_actual
-    assert pu.default == True
+    assert pu.default
     assert type(pu.py_type) is str
     assert pu.domain is None
     assert pu.description == "just some bool"

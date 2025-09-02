@@ -2,30 +2,56 @@
 name = "tasklattice"
 version = "0.1.0"
 description = "Modular simulation sweep orchestrator"
-authors = [{ name = "Your Name", email = "your@email.com" }]
-requires-python = ">=3.11"
-dependencies = []
+readme = "README.md"
+authors = [{ name = "Zachary Meadows", email = "zmeadows@gmail.com" }]
+requires-python = ">=3.11,<3.13"
+
+dependencies = [
+  "lark>=1.2,<2",
+  "rich>=14,<15",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/tasklattice"
+Repository = "https://github.com/your-org/tasklattice"
+
+[project.optional-dependencies]
+# local development & CI
+dev = [
+  "pytest>=8.2",
+  "mypy>=1.10",
+  "ruff>=0.4",
+  "typing_extensions>=4.10",
+  "pre-commit>=3.7",
+]
 
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
+# --- Setuptools (src/ layout) ---
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# --- Ruff ---
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+# If you prefer not to lint tests, keep this. Otherwise, delete this line.
 exclude = ["tests/*"]
 
-[tool.ruff.lint]
-select = ["E", "F", "I", "UP"]
-
+# --- Mypy ---
 [tool.mypy]
 python_version = "3.11"
-check_untyped_defs = true
-disallow_untyped_defs = true
-ignore_missing_imports = true
 mypy_path = "src"
 strict = true
+ignore_missing_imports = true
+check_untyped_defs = true
 
+# --- Pytest ---
 [tool.pytest.ini_options]
 minversion = "7.0"
 addopts = "-ra -q"
