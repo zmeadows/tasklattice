@@ -3,9 +3,9 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Literal
 
-from tasklattice.source import Source, SourceIndex, SourceSpan
+from tasklattice.placeholder.quotes import QuoteContext
+from tasklattice.source import Source, SourceSpan
 
 # Match: {{TL ...}}
 # - allows whitespace after {{ 
@@ -14,22 +14,6 @@ PLACEHOLDER_RE = re.compile(
     r"\{\{\s*(?P<body>TL\b(?:(?!\}\}).)*?)\}\}",
     re.DOTALL,
 )
-
-QuoteType = Literal["single", "double"]
-
-@dataclass(frozen=True, slots=True)
-class QuoteContext:
-    style: QuoteType
-    left_index: SourceIndex
-    right_index: SourceIndex
-
-    @property
-    def exterior(self) -> SourceSpan:
-        return SourceSpan(self.left_index, self.right_index + 1)
-
-    @property
-    def interior(self) -> SourceSpan:
-        return SourceSpan(self.left_index + 1, self.right_index)
 
 @dataclass(frozen=True, slots=True)
 class Placeholder:
