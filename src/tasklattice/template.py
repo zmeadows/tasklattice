@@ -6,6 +6,8 @@ from types import MappingProxyType
 from typing import TypeAlias
 
 from .placeholder.model import PLACEHOLDER_RE, ParamName, ParamResolved, Placeholder, ValueLiteral
+from .placeholder.resolve import resolve_param
+from .placeholder.parse import parse_param
 from .source import Source, SourceIndex, SourceSpan
 
 SubstitutionMap: TypeAlias = Mapping[ParamName, ValueLiteral]
@@ -32,15 +34,13 @@ class Template:
 
         for match in PLACEHOLDER_RE.finditer(source.contents):
             ph = Placeholder.from_match(source, match)
-
-            _append_span(ph.span_outer.start, last)
-
-            # TODO:
-            # pr: ParamResolved = ...
-            # params[pr.name] = pr
-            elements.append(ParamName("TODO"))
-
+            _append_span(last, ph.span_outer.start)
             last = ph.span_outer.end
+
+            par = resolve_param(parse_param(ph))
+
+            params[par.name] = par
+            elements.append(par.name)
 
         _append_span(last, SourceIndex(len(source.contents)))
 
@@ -49,6 +49,12 @@ class Template:
             params=MappingProxyType(params),
             sequence=tuple(elements)
         )
+
+    def defaults(self: Template) -> SubstitutionMap:
+        subs = {}
+        for name, param in self.params.items():
+            subs[name] = param.default
+        return subs
 
     def render_to_object(self, subs: SubstitutionMap) -> Render:
         # TODO:
