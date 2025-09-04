@@ -12,6 +12,9 @@ def _validate_map(tpt: Template, subs: SubstitutionMap) -> None:
             raise RuntimeError(f"Parameter name not found: {sname}")
         if param.domain is not None and not param.domain.contains(svalue):
             raise RuntimeError(f"Domain for parameter {sname} does not contain value: {svalue}")
+        if not isinstance(svalue, param.py_type):
+            actual_type = type(svalue)
+            raise RuntimeError(f"Attempted to substitution value of type {actual_type} for parameter of type: {param.py_type}")
 
 def _render_literal(ph: Placeholder, val: ValueLiteral) -> str:
     # TODO:
@@ -26,7 +29,7 @@ def render(tpt: Template, subs: SubstitutionMap) -> str:
             chunks.append(tpt.source.slice(selem))
         else:
             pr = tpt.params[selem]
-            val = subs.get(selem, None) or pr.default
+            val = subs.get(selem, pr.default)
             chunks.append(_render_literal(pr.placeholder, val))
 
     return ''.join(chunks)
