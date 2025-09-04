@@ -65,6 +65,7 @@ class Placeholder:
 
     @property
     def fills_quotes(self) -> bool:
+        # " {{TL x}} " is treated as “fills the quotes.”
         if not self.quote:
             return False
         interior = self.source.slice(self.quote.interior)
