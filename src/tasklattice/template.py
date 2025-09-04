@@ -38,6 +38,9 @@ class Template:
 
             par = resolve_param(parse_param(ph))
 
+            if par.name in params:
+                raise RuntimeError(f"Duplicate parameter found with name: {par.name}")
+
             params[par.name] = par
             elements.append(par.name)
 
