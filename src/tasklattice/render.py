@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from .source import SourceSpan
-from .template import Template
-from .placeholder.model import ValueLiteral, SubstitutionMap, Placeholder
+from tasklattice.source import SourceSpan
+from tasklattice.template import Template
+from tasklattice.placeholder.model import ValueLiteral, SubstitutionMap, Placeholder
 
 
 def _validate_map(tpt: Template, subs: SubstitutionMap) -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .model import (
+from tasklattice.placeholder.model import (
     Domain,
     DomainInterval,
     DomainIntervalUnresolved,

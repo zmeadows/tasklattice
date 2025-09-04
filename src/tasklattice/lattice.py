@@ -18,7 +18,7 @@ import json
 import sys
 
 # External project types (assumed to exist in your repo)
-from .placeholder.model import ParamName, ValueLiteral, SubstitutionMap
+from tasklattice.placeholder.model import ParamName, ValueLiteral, SubstitutionMap
 
 """
 TaskLattice — Lattice (skeleton, v2)

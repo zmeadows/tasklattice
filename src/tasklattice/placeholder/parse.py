@@ -3,8 +3,8 @@ from typing import Any
 
 from lark import Lark, ParseTree, Token, Transformer, v_args
 
-from .grammar import TL_GRAMMAR
-from .model import (
+from tasklattice.placeholder.grammar import TL_GRAMMAR
+from tasklattice.placeholder.model import (
     DomainIntervalUnresolved,
     DomainSetUnresolved,
     Number,

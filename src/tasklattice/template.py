@@ -5,10 +5,10 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TypeAlias
 
-from .placeholder.model import PLACEHOLDER_RE, ParamName, ParamResolved, Placeholder
-from .placeholder.resolve import resolve_param
-from .placeholder.parse import parse_param
-from .source import Source, SourceIndex, SourceSpan
+from tasklattice.placeholder.model import PLACEHOLDER_RE, ParamName, ParamResolved, Placeholder
+from tasklattice.placeholder.resolve import resolve_param
+from tasklattice.placeholder.parse import parse_param
+from tasklattice.source import Source, SourceIndex, SourceSpan
 
 Parameters: TypeAlias = Mapping[ParamName, ParamResolved]
 SequenceElement: TypeAlias = SourceSpan | ParamName

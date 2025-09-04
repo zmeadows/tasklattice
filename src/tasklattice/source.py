@@ -5,7 +5,7 @@ from os import PathLike
 from pathlib import Path
 from typing import SupportsIndex
 
-from .profile import Profile, infer_profile, default_profile
+from tasklattice.profile import Profile, infer_profile, default_profile
 
 @dataclass(frozen=True, order=True, slots=True)
 class SourceIndex:
