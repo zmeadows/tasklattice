@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from tasklattice.source import SourceSpan
 from tasklattice.template import Template
-from tasklattice.placeholder.model import ValueLiteral, SubstitutionMap, Placeholder
+from tasklattice.placeholder.model import ValueLiteral, SubstitutionMap, ParamResolved
 
 
 def _validate_map(tpt: Template, subs: SubstitutionMap) -> None:
@@ -16,7 +16,7 @@ def _validate_map(tpt: Template, subs: SubstitutionMap) -> None:
             actual_type = type(svalue)
             raise RuntimeError(f"Attempted to substitution value of type {actual_type} for parameter of type: {param.py_type}")
 
-def _render_literal(ph: Placeholder, val: ValueLiteral) -> str:
+def _render_literal(param: ParamResolved, val: ValueLiteral) -> str:
     # TODO:
     return ""
 
@@ -30,7 +30,7 @@ def render(tpt: Template, subs: SubstitutionMap) -> str:
         else:
             pr = tpt.params[selem]
             val = subs.get(selem, pr.default)
-            chunks.append(_render_literal(pr.placeholder, val))
+            chunks.append(_render_literal(pr, val))
 
     return ''.join(chunks)
 
