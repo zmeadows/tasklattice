@@ -18,9 +18,7 @@ import json
 import sys
 
 # External project types (assumed to exist in your repo)
-from .template import SubstitutionMap  # Mapping[ParamName, ValueLiteral]
-from .placeholder.model import ParamName, ValueLiteral
-
+from .placeholder.model import ParamName, ValueLiteral, SubstitutionMap
 
 """
 TaskLattice — Lattice (skeleton, v2)
@@ -57,7 +55,6 @@ class ConflictPolicy(Enum):
 
 
 ParamKey = str | ParamName  # inputs can be strings for convenience
-
 
 def _to_param(p: ParamKey) -> ParamName:
     return p if isinstance(p, ParamName) else ParamName(p)
@@ -98,8 +95,6 @@ def _merge(
 # ————————————————————————————————————————————————————————————————
 
 class _Op(ABC):
-    """Internal op interface (duck-typed)."""
-
     @abstractmethod
     def apply(self, upstream: Iterable[SubstitutionMap]) -> Iterator[SubstitutionMap]:
         ...
@@ -243,7 +238,7 @@ class _FilterOp(_Op):
 @dataclass(frozen=True, slots=True)
 class _ConcatOp(_Op):
     """Concatenate another lattice's stream after the current stream."""
-    tail: 'Lattice'
+    tail: Lattice
 
     def apply(self, upstream: Iterable[SubstitutionMap]) -> Iterator[SubstitutionMap]:
         yield from upstream
@@ -376,29 +371,29 @@ class Lattice:
         seed = _SeedOp(defaults or {}, conflict)
         object.__setattr__(self, "_ops", (seed,))
 
-    def _append(self, op: _Op) -> 'Lattice':
+    def _append(self, op: _Op) -> Lattice:
         return Lattice._from_ops(self._ops + (op,), conflict=self._conflict)
 
     @classmethod
-    def _from_ops(cls, ops: tuple[_Op, ...], *, conflict: ConflictPolicy) -> 'Lattice':
+    def _from_ops(cls, ops: tuple[_Op, ...], *, conflict: ConflictPolicy) -> Lattice:
         obj = cls.__new__(cls)  # bypass __init__
         object.__setattr__(obj, "_ops", ops)
         object.__setattr__(obj, "_conflict", conflict)
         return obj
 
     # ——— user-facing ops ———
-    def set_constants(self, const: Mapping[ParamKey, ValueLiteral]) -> 'Lattice':
+    def set_constants(self, const: Mapping[ParamKey, ValueLiteral]) -> Lattice:
         """Assign constant parameters to every variant (merging with conflicts)."""
         if not const:
             return self
         norm = { _to_param(k): v for k, v in const.items() }
         return self._append(_ConstOp(norm, self._conflict))
 
-    def add_product(self, name: ParamKey, values: Sequence[ValueLiteral]) -> 'Lattice':
+    def add_product(self, name: ParamKey, values: Sequence[ValueLiteral]) -> Lattice:
         """Cartesian-expand over *values* of *name*."""
         return self._append(_ProductOp(_to_param(name), tuple(values), self._conflict))
 
-    def add_zip(self, cols: Mapping[ParamKey, Sequence[ValueLiteral]]) -> 'Lattice':
+    def add_zip(self, cols: Mapping[ParamKey, Sequence[ValueLiteral]]) -> Lattice:
         """Zip *aligned* parameter sequences.
 
         All sequences must have equal length; they are assigned together.
@@ -420,7 +415,7 @@ class Lattice:
     def derive(
         self,
         fn: Callable[[Mapping[ParamName, ValueLiteral]], Mapping[ParamName, ValueLiteral] | None],
-    ) -> 'Lattice':
+    ) -> Lattice:
         """Compute/attach derived parameters from a variant.
 
         The function receives a read-only mapping of the current variant and
@@ -428,15 +423,15 @@ class Lattice:
         """
         return self._append(_MapOp(fn, self._conflict))
 
-    def filter(self, pred: Callable[[Mapping[ParamName, ValueLiteral]], bool]) -> 'Lattice':
+    def filter(self, pred: Callable[[Mapping[ParamName, ValueLiteral]], bool]) -> Lattice:
         """Keep only variants where pred(subs) is True."""
         return self._append(_FilterOp(pred))
 
-    def dedup(self) -> 'Lattice':
+    def dedup(self) -> Lattice:
         """Drop duplicates (best-effort; see _DedupOp notes)."""
         return self._append(_DedupOp())
 
-    def concat(self, other: 'Lattice') -> 'Lattice':
+    def concat(self, other: Lattice) -> Lattice:
         """Append another lattice's variants after this one's variants."""
         return self._append(_ConcatOp(other))
 
@@ -444,7 +439,7 @@ class Lattice:
         self,
         space: Mapping[ParamKey, Sequence[ValueLiteral]],
         ok: Callable[[Mapping[ParamName, ValueLiteral]], bool],
-    ) -> 'Lattice':
+    ) -> Lattice:
         """Like a product over many params, but prunes branches via `ok(partial)`.
         Useful when constraints would invalidate many cartesian combinations.
         """
@@ -506,6 +501,7 @@ class Lattice:
         rows = [dict(m) for m in self]
         return pd.DataFrame.from_records(rows)
 
+    # TODO(zac): Define TaskLattice version string somewhere
     def iter_with_ids(self, *, salt: str = "tasklattice-v1") -> Iterator[tuple[str, SubstitutionMap]]:
         """Yield `(variant_id, mapping)` where the id is a stable hash of the
         canonicalized mapping plus a *salt* (to allow versioning).
@@ -524,7 +520,7 @@ class Lattice:
             yield (h.hexdigest(), m)
 
     # ——— configuration knobs ———
-    def with_conflict_policy(self, policy: ConflictPolicy) -> 'Lattice':
+    def with_conflict_policy(self, policy: ConflictPolicy) -> Lattice:
         """Return a copy with a different merge policy for subsequent ops."""
         return Lattice._from_ops(self._ops, conflict=policy)
 

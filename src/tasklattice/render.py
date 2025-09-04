@@ -1,0 +1,35 @@
+from __future__ import annotations
+
+from .source import SourceSpan
+from .template import Template
+from .placeholder.model import ValueLiteral, SubstitutionMap, Placeholder
+
+
+def _validate_map(tpt: Template, subs: SubstitutionMap) -> None:
+    for sname, svalue in subs.items():
+        param = tpt.params.get(sname, None)
+        if param is None:
+            raise RuntimeError(f"Parameter name not found: {sname}")
+        if param.domain is not None and not param.domain.contains(svalue):
+            raise RuntimeError(f"Domain for parameter {sname} does not contain value: {svalue}")
+
+def _render_literal(ph: Placeholder, val: ValueLiteral) -> str:
+    # TODO:
+    return ""
+
+def render(tpt: Template, subs: SubstitutionMap) -> str:
+    _validate_map(tpt, subs)
+
+    chunks = []
+    for selem in tpt.sequence:
+        if isinstance(selem, SourceSpan):
+            chunks.append(tpt.source.slice(selem))
+        else:
+            pr = tpt.params[selem]
+            val = subs.get(selem, None) or pr.default
+            chunks.append(_render_literal(pr.placeholder, val))
+
+    return ''.join(chunks)
+
+
+

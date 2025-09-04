@@ -5,6 +5,7 @@ from os import PathLike
 from pathlib import Path
 from typing import SupportsIndex
 
+from .profile import Profile, infer_profile, default_profile
 
 @dataclass(frozen=True, order=True, slots=True)
 class SourceIndex:
@@ -52,8 +53,9 @@ def _compute_line_starts(s: str) -> tuple[SourceIndex, ...]:
 
 @dataclass(frozen=True, slots=True)
 class Source:
-    file: Path | None
+    file: Path | None #TODO: rename 'path'
     contents: str
+    profile: Profile
 
     _line_starts: tuple[SourceIndex, ...] | None = field(
         default=None, init=False, repr=False, compare=False
@@ -66,9 +68,24 @@ class Source:
             else:
                 raise ValueError("Empty source contents given.")
 
-    @classmethod
-    def from_file(cls, path_rep: str | Path | PathLike[str], encoding: str = "utf-8") -> Source:
+    @staticmethod
+    def from_string(text: str, profile: Profile | None = None) -> Source:
+        return Source(
+            file=None,
+            contents=text,
+            profile=profile if profile is not None else default_profile()
+        )
+
+    @staticmethod
+    def from_file(
+        path_rep: str | Path | PathLike[str],
+        encoding: str = "utf-8",
+        profile: Profile | None = None,
+    ) -> Source:
         path = Path(path_rep)
+
+        if profile is None:
+            profile = infer_profile(path)
 
         if not path.exists():
             raise FileNotFoundError(f"No such file: {path}")
@@ -76,7 +93,7 @@ class Source:
             raise IsADirectoryError(f"Expected a file but found a directory: {path}")
 
         try:
-            return cls(path, path.read_text(encoding=encoding))
+            return Source(path, path.read_text(encoding=encoding), profile=profile)
         except UnicodeDecodeError:
             raise
         except OSError as e:

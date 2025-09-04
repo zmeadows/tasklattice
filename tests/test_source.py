@@ -4,7 +4,7 @@ from tasklattice.source import Source, SourceIndex
 
 
 def test_pos_to_line_col_basic() -> None:
-    s = Source(None, "ab\nc\r\nd\n")
+    s = Source.from_string("ab\nc\r\nd\n")
     # indexes: 0 1 2 3 4 5 6 7  (len=8)
     assert s.pos_to_line_col(SourceIndex(0)) == (1, 1)
     assert s.pos_to_line_col(SourceIndex(2)) == (1, 3)     # '\n' at end of line 1

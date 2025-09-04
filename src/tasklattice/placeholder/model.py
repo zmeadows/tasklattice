@@ -3,9 +3,12 @@ from __future__ import annotations
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from collections.abc import Mapping
+from typing import TypeAlias
 
 from tasklattice.placeholder.quotes import QuoteContext, detect_quote_context
 from tasklattice.source import Source, SourceSpan
+from tasklattice.profile import Profile
 
 # Match: {{TL ...}}
 # - allows whitespace after {{ 
@@ -32,14 +35,13 @@ class Placeholder:
         )
 
     @staticmethod
-    def from_string(text: str) -> Placeholder:
-        # TODO: Allow optional profile (xml, json, etc) for testing
+    def from_string(text: str, profile: Profile | None = None) -> Placeholder:
         m = PLACEHOLDER_RE.fullmatch(text)
         if not m:
             raise ValueError(f"Not a valid Placeholder string: {text!r}")
 
         return Placeholder._construct(
-            source=Source(file=None, contents=text),
+            source=Source.from_string(text, profile),
             span_outer=SourceSpan.from_ints(0, len(text)),
             span_inner=SourceSpan.from_ints(*m.span("body")),
         )
@@ -160,6 +162,7 @@ class ParamName:
 class ParamUnresolved:
     name: ParamName
     default: ValueLiteral
+    placeholder: Placeholder
     py_type: str | None = None
     domain: DomainIntervalUnresolved | DomainSetUnresolved | None = None
     description: str | None = None
@@ -168,6 +171,7 @@ class ParamUnresolved:
 class ParamResolved:
     name: ParamName
     default: ValueLiteral
+    placeholder: Placeholder
     py_type: type[ValueLiteral] = field(init=False, repr=True, compare=False)
     domain: Domain | None = None
     description: str | None = None
@@ -175,3 +179,4 @@ class ParamResolved:
     def __post_init__(self) -> None:
         object.__setattr__(self, "py_type", type(self.default))
 
+SubstitutionMap: TypeAlias = Mapping[ParamName, ValueLiteral]

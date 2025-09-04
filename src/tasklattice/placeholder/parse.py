@@ -39,6 +39,7 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
             py_type=meta_pairs.get("type", None),
             domain=meta_pairs.get("domain", None),
             description=meta_pairs.get("desc", None),
+            placeholder=self._ph,
         )
 
     def INT(self, tok: Token) -> int:

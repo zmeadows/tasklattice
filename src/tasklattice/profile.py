@@ -1,3 +1,22 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+
+from pathlib import Path
+
+@dataclass(frozen=True, slots=True)
+class Profile:
+    id: str
+    ...
+
+
+def infer_profile(path: Path) -> Profile:
+    _ = path
+    return Profile("TODO")
+
+def default_profile() -> Profile:
+    return Profile("TODO")
+
 # Core filetypes (≈95% coverage)
 #     YAML (.yml, .yaml) — typed
 #     JSON (.json) — typed
@@ -7,7 +26,7 @@
 #     Shell & scheduler scripts (Bash/Slurm/PBS) (.sh, .sbatch, .pbs) — stringly
 #     Fortran NAMELIST (.nml, .namelist) — typed (.true./.false. booleans)
 #
-# Non-core (nice-to-have / cover edge cases)
+# Future (not right now)
 #     Domain “input decks”:
 #        * LAMMPS (.in/.lmp),
 #        * GROMACS (.mdp),

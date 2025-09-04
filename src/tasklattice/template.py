@@ -5,20 +5,19 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TypeAlias
 
-from .placeholder.model import PLACEHOLDER_RE, ParamName, ParamResolved, Placeholder, ValueLiteral
+from .placeholder.model import PLACEHOLDER_RE, ParamName, ParamResolved, Placeholder
 from .placeholder.resolve import resolve_param
 from .placeholder.parse import parse_param
 from .source import Source, SourceIndex, SourceSpan
 
-SubstitutionMap: TypeAlias = Mapping[ParamName, ValueLiteral]
-ParamSet: TypeAlias = Mapping[ParamName, ParamResolved]
+Parameters: TypeAlias = Mapping[ParamName, ParamResolved]
 SequenceElement: TypeAlias = SourceSpan | ParamName
 TemplateSequence: TypeAlias = tuple[SequenceElement, ...]
 
 @dataclass(frozen=True, slots=True)
 class Template:
     source: Source
-    params: ParamSet
+    params: Parameters
     sequence: TemplateSequence
 
     @staticmethod
@@ -47,25 +46,5 @@ class Template:
         return Template(
             source=source,
             params=MappingProxyType(params),
-            sequence=tuple(elements)
+            sequence=tuple(elements),
         )
-
-    def defaults(self: Template) -> SubstitutionMap:
-        subs = {}
-        for name, param in self.params.items():
-            subs[name] = param.default
-        return subs
-
-    def render_to_object(self, subs: SubstitutionMap) -> Render:
-        # TODO:
-        return Render("", self, subs)
-
-    def render_to_file(self, _: SubstitutionMap, ) -> None:
-        # TODO:
-        pass
-
-@dataclass(frozen=True, slots=True)
-class Render:
-    text: str
-    input: Template
-    subs: SubstitutionMap

@@ -217,5 +217,6 @@ def resolve_param(pu: ParamUnresolved) -> ParamResolved:
         default=default_resolved,
         domain=domain_resolved,
         description=pu.description,
+        placeholder=pu.placeholder,
     )
 
