@@ -40,6 +40,7 @@ class EscapePolicy(StrEnum):
     XML = "xml"                # actual escaping chosen by context
 
 
+# TODO: this is redudant with QuoteType from quotes.py
 class QuoteStyle(StrEnum):
     SINGLE = "single"
     DOUBLE = "double"
@@ -559,8 +560,6 @@ def infer_profile(path: Path) -> Profile:
     pid = _EXT_TO_ID.get(path.suffix.lower(), ProfileId.YAML)
     return get_profile(pid)
 
-
-# Thin alias some modules already expect
 
 def default_profile(path: Path | None = None) -> Profile:
     if path is None:
