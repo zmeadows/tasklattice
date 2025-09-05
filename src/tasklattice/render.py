@@ -167,24 +167,6 @@ def _format_float(val: float, prof: Profile) -> str:
     return text
 
 
-#def _placeholder_quote_style(ph: Placeholder) -> QuoteStyle | None:
-#    """Map the placeholder's quote context to our QuoteStyle enum (or None)."""
-#    q = ph.quote
-#    if q is None:
-#        return None
-#
-#    style = q.style
-#
-#    s = str(getattr(style, "name", "")).lower()
-#    if s == "single":
-#        return QuoteStyle.SINGLE
-#    if s == "double":
-#        return QuoteStyle.DOUBLE
-#
-#    # Fallback: treat unknown as double
-#    return QuoteStyle.DOUBLE
-
-
 def _resolve_xml_context(ph: Any) -> str:
     """Best-effort local scan to decide if the placeholder sits in an XML attribute
     or text node. Returns "attr" or "text".
