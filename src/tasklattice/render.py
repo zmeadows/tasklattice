@@ -4,7 +4,10 @@ from typing import Any
 
 from tasklattice.source import SourceSpan
 from tasklattice.template import Template
-from tasklattice.placeholder.model import ValueLiteral, SubstitutionMap, ParamResolved
+from tasklattice.placeholder.model import  ParamResolved, Placeholder
+
+from tasklattice.core import ValueLiteral, SubstitutionMap
+
 from tasklattice.profile import (
     Profile,
     ProfileId,
@@ -52,14 +55,12 @@ def _render_literal(param: ParamResolved, val: ValueLiteral) -> str:
     Note: explicit `null`/None is not supported yet at the type level; when that
     ValueLiteral variant is added later, handle it here.
     """
-    ph = getattr(param, "placeholder")
-    if ph is None:
-        raise RuntimeError(f"Internal error: ParamResolved for '{param.name}' lacks its defining placeholder")
+    ph: Placeholder = param.placeholder
 
     src = ph.source
     prof: Profile = src.profile
 
-    occ_quote_style = _placeholder_quote_style(ph)  # QuoteStyle | None
+    occ_quote_style = None if ph.quote is None else ph.quote.style
     is_quoted = occ_quote_style is not None
 
     # XML: resolve local context (attr vs text)
@@ -166,23 +167,22 @@ def _format_float(val: float, prof: Profile) -> str:
     return text
 
 
-def _placeholder_quote_style(ph: Any) -> QuoteStyle | None:
-    """Map the placeholder's quote context to our QuoteStyle enum (or None)."""
-    q = getattr(ph, "quote", None)
-    if q is None:
-        return None
-    style = getattr(q, "style", None)
-    # Accept several representations: enum-like with .name, or plain string
-    if isinstance(style, str):
-        s = style.lower()
-    else:
-        s = str(getattr(style, "name", "")).lower()
-    if s == "single":
-        return QuoteStyle.SINGLE
-    if s == "double":
-        return QuoteStyle.DOUBLE
-    # Fallback: treat unknown as double
-    return QuoteStyle.DOUBLE
+#def _placeholder_quote_style(ph: Placeholder) -> QuoteStyle | None:
+#    """Map the placeholder's quote context to our QuoteStyle enum (or None)."""
+#    q = ph.quote
+#    if q is None:
+#        return None
+#
+#    style = q.style
+#
+#    s = str(getattr(style, "name", "")).lower()
+#    if s == "single":
+#        return QuoteStyle.SINGLE
+#    if s == "double":
+#        return QuoteStyle.DOUBLE
+#
+#    # Fallback: treat unknown as double
+#    return QuoteStyle.DOUBLE
 
 
 def _resolve_xml_context(ph: Any) -> str:
@@ -294,7 +294,6 @@ def render(tpt: Template, subs: SubstitutionMap) -> str:
             chunks.append(tpt.source.slice(selem))
         else:
             pr = tpt.params[selem]
-            # NOTE: This preserves falsy values (0, "", False) provided in subs
             val = subs.get(selem, pr.default)
             chunks.append(_render_literal(pr, val))
 

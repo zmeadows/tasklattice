@@ -1,6 +1,11 @@
 import pytest
-from tasklattice.placeholder.model import Domain, DomainInterval, DomainSet, Number
 
+from tasklattice.core import (
+    Domain,
+    DomainInterval,
+    DomainSet,
+    Number,
+)
 
 # --- DomainInterval tests -----------------------------------------------------
 

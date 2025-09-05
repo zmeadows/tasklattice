@@ -5,9 +5,10 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TypeAlias
 
-from tasklattice.placeholder.model import PLACEHOLDER_RE, ParamName, ParamResolved, Placeholder
-from tasklattice.placeholder.resolve import resolve_param
+from tasklattice.core import ParamName
+from tasklattice.placeholder.model import PLACEHOLDER_RE, ParamResolved, Placeholder
 from tasklattice.placeholder.parse import parse_param
+from tasklattice.placeholder.resolve import resolve_param
 from tasklattice.source import Source, SourceIndex, SourceSpan
 
 Parameters: TypeAlias = Mapping[ParamName, ParamResolved]

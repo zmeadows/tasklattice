@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from tasklattice.placeholder.parse import parse_param_str
-from tasklattice.placeholder.model import Number, type_raw_to_python_type, DomainIntervalUnresolved
+
+from tasklattice.core import Number, type_raw_to_python_type, DomainIntervalUnresolved
 
 from tests.utils import tl
 

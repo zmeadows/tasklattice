@@ -1,18 +1,18 @@
 from __future__ import annotations
 
-from tasklattice.placeholder.model import (
+from tasklattice.core import (
     Domain,
     DomainInterval,
     DomainIntervalUnresolved,
     DomainSet,
     DomainSetUnresolved,
     Number,
-    ParamResolved,
-    ParamUnresolved,
     SetLiteral,
     ValueLiteral,
     type_raw_to_python_type,
 )
+
+from tasklattice.placeholder.model import ParamResolved, ParamUnresolved
 
 _NUMERIC_TYPES: tuple[type, ...] = (int, float)
 

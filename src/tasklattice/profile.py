@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 import re
 
+from tasklattice.core import QuoteStyle
+
 """
 This module defines a data-driven Profile describing how to render literals for
 various templated file formats (JSON, YAML, TOML, INI/.properties/.env, XML).
@@ -38,12 +40,6 @@ class EscapePolicy(StrEnum):
     PROPERTIES = "properties"  # ini/properties/dotenv family
     DOTENV = "dotenv"          # optional separate behavior
     XML = "xml"                # actual escaping chosen by context
-
-
-# TODO: this is redudant with QuoteType from quotes.py
-class QuoteStyle(StrEnum):
-    SINGLE = "single"
-    DOUBLE = "double"
 
 
 # Strategy type alias (for YAML quoting heuristic)

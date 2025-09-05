@@ -1,15 +1,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
 from tasklattice.source import Source, SourceIndex, SourceSpan
-
-QuoteType = Literal["single", "double"]
+from tasklattice.core import QuoteStyle
 
 @dataclass(frozen=True, slots=True)
 class QuoteContext:
-    style: QuoteType
+    style: QuoteStyle
     left_index: SourceIndex
     right_index: SourceIndex
 
@@ -34,11 +32,11 @@ def _skip_ws_right(text: str, i: SourceIndex) -> SourceIndex:
         j = j + 1
     return j
 
-def _as_quote_type(ch: str) -> QuoteType | None:
+def _as_quote_type(ch: str) -> QuoteStyle | None:
     if ch == '"':
-        return "double"
+        return QuoteStyle.DOUBLE
     elif ch == "'":
-        return "single"
+        return QuoteStyle.SINGLE
     else:
         return None
 

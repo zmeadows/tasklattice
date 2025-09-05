@@ -4,15 +4,19 @@ from typing import Any
 from lark import Lark, ParseTree, Token, Transformer, v_args
 
 from tasklattice.placeholder.grammar import TL_GRAMMAR
-from tasklattice.placeholder.model import (
-    DomainIntervalUnresolved,
-    DomainSetUnresolved,
+
+from tasklattice.core import (
     Number,
-    ParamName,
-    ParamUnresolved,
-    Placeholder,
     SetLiteral,
     ValueLiteral,
+    DomainIntervalUnresolved,
+    DomainSetUnresolved,
+    ParamName,
+)
+
+from tasklattice.placeholder.model import (
+    ParamUnresolved,
+    Placeholder,
 )
 
 
