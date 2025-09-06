@@ -1,7 +1,7 @@
 from ast import literal_eval
-from typing import Any
+from typing import Any, TypeAlias
 
-from lark import Lark, ParseTree, Token, Transformer, v_args
+from lark import Lark, Tree, Token, Transformer, v_args
 
 from tasklattice.placeholder.grammar import TL_GRAMMAR
 
@@ -106,6 +106,8 @@ _PARSER = Lark(
     lexer="contextual",
     cache=False,
 )
+
+ParseTree: TypeAlias = Tree[Token]
 
 def parse_param(ph: Placeholder) -> ParamUnresolved:
     tree: ParseTree = _PARSER.parse(ph.text)

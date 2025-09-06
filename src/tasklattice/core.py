@@ -33,8 +33,7 @@ def type_raw_to_python_type(type_raw: str) -> type[ValueLiteral] | None:
 
 class Domain(ABC):
     @abstractmethod
-    def contains(self, value: ValueLiteral) -> bool:
-        ...
+    def contains(self, value: ValueLiteral) -> bool: ...
 
 @dataclass(frozen=True, slots=True)
 class DomainInterval(Domain):
