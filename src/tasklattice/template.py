@@ -53,3 +53,10 @@ class Template:
             params=MappingProxyType(params),
             sequence=tuple(elements),
         )
+
+# @dataclass(frozen=True, slots=True)
+# class TemplateSet:
+#     ...
+#     @staticmethod
+#     def from_sources(sources: list[Source]) -> TemplateSet:
+#         return TemplateSet()
