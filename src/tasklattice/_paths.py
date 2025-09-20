@@ -70,8 +70,9 @@ class RelPath:
     def parts(self) -> tuple[str, ...]:
         return tuple(self.value.split("/"))
 
-    def join_under(self, base: Path) -> Path:
-        return base.joinpath(*self.parts())
+    def join_under(self, base: "Path | AbsDir") -> Path:
+        base_path = base.path if isinstance(base, AbsDir) else base
+        return base_path.joinpath(*self.parts())
 
 
 # ---------------------------------------------------------------------------
