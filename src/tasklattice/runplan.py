@@ -1,108 +1,58 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import StrEnum
 from pathlib import Path
-from typing import Tuple, Mapping
 from types import MappingProxyType
+from typing import Any, Mapping, Sequence, Tuple, TypeAlias
 
+from tasklattice._paths import (
+    UserAbsPath,
+    UserRelPath,
+    AbsDir,
+    AbsFile,
+    RelPath
+)
 
-# --------------------------- enums & small types ---------------------------
+# TODO: handle/validate expected file encodings
+# TODO: what if prototype directory gets modified during course of TaskLattice script...?
 
-class LinkMode(StrEnum):
-    COPY = "copy"        # safest
-    SYMLINK = "symlink"  # fastest for large trees; beware external mutation
-    HARDLINK = "hardlink"
-
-
-class ConflictPolicy(StrEnum):
-    FAIL = "fail"
-    OVERWRITE = "overwrite"
-    SKIP_IF_IDENTICAL = "skip_if_identical"
-
-
-# ======================= RenderFileSpec (rename later) ======================
-# Alternate names you could choose from (pick one and rename the class):
-# - RenderFileSpec
-# - TemplateTarget
-# - FileRender
-# - RenderMapping
-# - TemplateRender
-# - GeneratedFileSpec
-# - RenderInstruction
-# - RenderRule
-# - InputTemplateSpec
-# - RenderedInput
-# - TemplateArtifact
-# - RenderPlanFile
+UserRenderSpec: TypeAlias = UserRelPath | Tuple[UserRelPath, UserRelPath]
 
 @dataclass(frozen=True, slots=True)
-class RenderFileSpec:
-    """
-    Describe one file to be rendered from placeholders.
+class RenderSpec:
+    source_relpath: RelPath                 # e.g., "input/config.yaml" (relative to prototype_dir)
+    target_relpath: RelPath | None = None   # default: same as relpath
 
-    Assumptions:
-    - The *template text* lives in the prototype directory at `source_relpath`.
-    - During materialization, we DO NOT copy that path from prototype → temp run dir.
-      Instead, we render it and write back to the target path.
-    - By default, the target path is the same as `source_relpath`. You can override with
-      `target_relpath` to write elsewhere inside the run directory.
-    """
-    # Required
-    source_relpath: str                          # e.g., "input/config.yaml" (relative to prototype_dir)
+    @staticmethod
+    def construct(prototype_dir: Path, item: UserRenderSpec) -> RenderSpec:
+        match item:
+            case str(rel):
+                src_rel = tgt_rel = RelPath(rel)
+            case (str(src), str(tgt)):
+                src_rel, tgt_rel = RelPath(src), RelPath(tgt)
+            case _:
+                raise TypeError("UserRenderSpec must be str or (str, str)")
 
-    # Optional
-    target_relpath: str | None = None     # default: same as relpath
-    on_conflict: ConflictPolicy = ConflictPolicy.OVERWRITE
-    encoding: str = "utf-8"               # text rendering; None not yet supported
-    mode: int = 0o644
+        src_abs = src_rel.join_under(prototype_dir)
+        if not src_abs.is_file():
+            raise ValueError(f"Source path doesn't exist: {src_abs}")
 
+        return RenderSpec(src_rel, tgt_rel)
 
-# ============================ RunPlan (rename later) =========================
-# Alternate names you could choose from (pick one and rename the class):
-# - RunPlan
-# - RunBlueprint
-# - RunRecipe
-# - MaterializationPlan
-# - DirectoryPlan
-# - PrototypeOverlayPlan
-# - RunScaffold
-# - RunSetup
-# - RenderPlan
-# - BuildPlan
-# - RunDesign
-# - RunAssembly
-
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class RunPlan:
-    """
-    Blueprint to materialize a single run directory via Plan A:
-      1) Create a fresh temp directory
-      2) Copy/symlink/hardlink the prototype directory into it with include/exclude filters,
-         always skipping all RenderFileSpec target paths (to avoid stale files)
-      3) For each RenderFileSpec, read template from prototype_dir/<source_relpath>,
-         render with subs, normalize text, and write to target (default: same path)
-      4) Atomic-rename temp → final run directory
-
-    No SubstitutionMap is baked in. This is the last "pure definition" object
-    before crossing into actual results (Experiment).
-    """
-    # Identity & where runs live
     name: str
-    root_dir: Path
-    prototype_dir: Path
+    root_dir: AbsDir
+    prototype_dir: AbsFile
 
-    # What to render (paths relative to prototype_dir)
-    render_files: Tuple[RenderFileSpec, ...]
+    render_files: Tuple[RenderSpec, ...]
 
-    # Prototype transfer behavior (copy/link + filtering)
     include_globs: Tuple[str, ...] = ("**/*",)  # applied before exclude
     exclude_globs: Tuple[str, ...] = (          # safe defaults
         ".git/**", ".hg/**", ".svn/**",
         "__pycache__/**", ".DS_Store", "Thumbs.db",
         ".tl/**", "._tl/**",
     )
-    link_mode: LinkMode = LinkMode.COPY
 
     # Text rendering normalization (applies only to rendered writes)
     newline: str | None = "\n"            # None = leave as produced by renderer
@@ -112,46 +62,25 @@ class RunPlan:
     post_run_prune_globs: Tuple[str, ...] = tuple()
 
     # Constant provenance copied into each run's metadata (same across variations)
-    meta: Mapping[str, object] = field(default_factory=lambda: MappingProxyType({}))
+    meta: Mapping[str, Any] = field(default_factory=lambda: MappingProxyType({}))
 
-    # --- to be implemented elsewhere (signatures shown for orientation) ---
-    # def run_id_for(self, subs: SubstitutionMap) -> str: ...
-    # def suggested_dir_for(self, subs: SubstitutionMap) -> Path: ...
-    # def materialize(self, subs: SubstitutionMap) -> RunMaterialized: ...
-    # def file_manifest_for(self, subs: SubstitutionMap) -> list[PlannedFile]: ...
-    # (Plan A uses a fresh temp dir + atomic rename; no in-place overlays.)
+    def __init__(self,
+             name: str,
+             root_dir: UserAbsPath,
+             prototype_dir: UserAbsPath,
+             render_files: Sequence[UserRenderSpec],
+             include_globs: Sequence[str] = ("**/*",),
+             exclude_globs: Sequence[str] = (".git/**","__pycache__/**",".tl/**"),
+             newline: str | None = "\n",
+             ensure_trailing_newline: bool = True,
+             meta: Mapping[str, Any] | None = None):
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "root_dir", AbsDir.any(root_dir)) #TODO: check root_dir doesnt exist and/or is empty?
+        object.__setattr__(self, "prototype_dir", AbsDir.existing(prototype_dir))
+        object.__setattr__(self, "render_files", tuple(render_files))
+        object.__setattr__(self, "include_globs", tuple(include_globs))
+        object.__setattr__(self, "exclude_globs", tuple(exclude_globs))
+        object.__setattr__(self, "newline", newline)
+        object.__setattr__(self, "ensure_trailing_newline", ensure_trailing_newline)
+        object.__setattr__(self, "meta", MappingProxyType(dict(meta or {})))
 
-
-# -----------------------------------------------------------------------------
-# NOTES / REMINDERS (agreed concepts not yet encoded here; keep until implemented)
-# -----------------------------------------------------------------------------
-# - Boundary: RunPlan + Lattice are pure definitions. Producing results happens via
-#   go(plan, lattice, runner, ...) -> Experiment, which materializes/launches runs.
-#
-# - Plan A only: always create a temp run dir, copy prototype (filtered), render targets,
-#   then atomic-rename into place. No "reuse in place" overlays right now.
-#
-# - Deny-set during prototype copy: skip every target path for each RenderFileSpec.
-#   (target = spec.target_relpath or spec.source_relpath)
-#
-# - No placeholders in target paths for now. Templates are valid YAML/JSON/etc.;
-#   the source path equals the default target path.
-#
-# - Newline normalization: after render(), if newline is not None, normalize all CRLF/CR to newline.
-#   If ensure_trailing_newline is True, append one if missing. Do this only for text (encoding not None).
-#
-# - post_run_prune_globs: declared on RunPlan but executed by the Runner (or a helper)
-#   after a successful run to reclaim disk space.
-#
-# - Run IDs: recommend "hash + kv slug" scheme (e.g., ab12cd34__nx=256__scheme=rk4);
-#   hash over canonical subs + input-affecting plan knobs; slug shows a few key params.
-#
-# - Experiment: stores snapshots of plan + lattice, index of runs, and provides refresh/validate.
-#
-# - Future (out of scope here, but planned):
-#   * ExistingDirPolicy for optional "reuse in place" mode
-#   * pre_clean_globs before rendering (dangerous; default off)
-#   * assets layer (copy/symlink extra static files beyond prototype)
-#   * lightweight output schema validation per run
-#   * streaming vs eager enumeration; concurrency knobs for local runs
-#   * cross-experiment dedupe (symlink identical materializations)

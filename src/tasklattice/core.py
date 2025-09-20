@@ -7,17 +7,15 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TypeAlias
 
-
 class QuoteStyle(StrEnum):
     SINGLE = "single"
     DOUBLE = "double"
 
+Number: TypeAlias = int | float
 
-Number = int | float
+ValueLiteral: TypeAlias = str | Number | bool
 
-ValueLiteral = str | Number | bool
-
-SetLiteral = str | Number
+SetLiteral: TypeAlias = str | Number
 
 # TODO: rename
 def type_raw_to_python_type(type_raw: str) -> type[ValueLiteral] | None:
