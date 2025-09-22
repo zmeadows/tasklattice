@@ -1,39 +1,14 @@
 # tasklattice/materialize.py
-#
-# OVERVIEW
-# ========
-# This module performs the "define → produce" transition. Given a RunPlan (a
-# pure description of what should be copied and which files should be rendered)
-# and a SubstitutionMap (the concrete parameter values for one run), it
-# materializes a real run directory on disk and returns a compact, immutable
-# description of what was written.
-#
-# Design goals:
-# - Runner-agnostic (local vs slurm doesn’t matter).
-# - Deterministic run IDs constructed from a fingerprint of plan knobs and the
-#   substitution map (order-independent).
-# - Strict about inputs (fail fast if sources are missing or empty).
-# - Small surface area with room to grow (e.g., indexing copied files, link modes).
-#
-# What’s new vs the very first draft:
-# - materialize_run now accepts a Renderer instance (default: TLRenderer) so you
-#   can swap in custom rendering strategies without touching this module.
-# - A Materializer class caches parsed Templates so multiple variations of the
-#   *same* plan don’t re-read/parse template files from disk.
-# - _copy_tree now honors RunPlan.link_mode (copy/symlink/hardlink) with graceful
-#   fallbacks to copy() if the platform/filesystem disallows links.
-#
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Sequence
 
 import fnmatch
 import hashlib
 import os
 import shutil
-import tempfile
 
 from tasklattice._paths import AbsDir, RelPath
 from tasklattice.core import SubstitutionMap, ValueLiteral
@@ -41,6 +16,7 @@ from tasklattice.template import Template
 from tasklattice.source import Source
 from tasklattice.render import Renderer, TLRenderer
 from tasklattice.runplan import RunPlan, RenderSpec, LinkMode
+from tasklattice.staging import StagingBackend, DefaultStaging
 
 
 # -----------------------------------------------------------------------------
@@ -48,7 +24,7 @@ from tasklattice.runplan import RunPlan, RenderSpec, LinkMode
 # -----------------------------------------------------------------------------
 @dataclass(frozen=True, slots=True)
 class FileRecord:
-    '''One file produced in a run directory.'''
+    """One file produced in a run directory."""
     target_relpath: RelPath          # target path (relative to run dir)
     source_relpath: RelPath | None   # for rendered files: template source; for copies: original relpath
     was_rendered: bool               # True for rendered files
@@ -58,7 +34,7 @@ class FileRecord:
 
 @dataclass(frozen=True, slots=True)
 class RunMaterialized:
-    '''Immutable description of a single *realized* run directory.'''
+    """Immutable description of a single *realized* run directory."""
     run_id: str
     run_dir: AbsDir                     # final directory: <results_dir>/<run_id>
     plan_fingerprint: str               # 12-char hex digest
@@ -74,11 +50,12 @@ def materialize_run(
     *,
     subs: SubstitutionMap,
     renderer: Renderer | None = None,
+    staging: StagingBackend | None = None,
     index_copied: bool = False,
     hash_rendered: bool = True,
     hash_copied: bool = False,
 ) -> RunMaterialized:
-    '''Materialize exactly one run for the given plan + substitutions.
+    """Materialize exactly one run for the given plan + substitutions.
 
     Parameters
     ----------
@@ -87,34 +64,29 @@ def materialize_run(
     subs : SubstitutionMap
         Concrete parameter values for this variation.
     renderer : Renderer | None
-        Rendering engine. Defaults to TLRenderer() which delegates to
-        tasklattice.render.render(). Accepting a protocol here lets callers inject
-        custom behavior or diagnostics without changing this module.
+        Rendering engine. Defaults to TLRenderer() which implements the Renderer protocol.
+    staging : StagingBackend | None
+        Staging backend for temp directory creation and finalization. Defaults to DefaultStaging().
     index_copied : bool
-        If True, include FileRecord entries for *copied/linked* files (not just
-        rendered outputs). Defaults to False for speed.
+        If True, include FileRecord entries for *copied/linked* files (not just rendered outputs).
     hash_rendered : bool
-        If True, compute SHA-256 digests for rendered outputs and store them in
-        FileRecord.sha256. Defaults to True.
+        If True, compute SHA-256 digests for rendered outputs.
     hash_copied : bool
-        If True and index_copied is True, compute SHA-256 digests for copied files
-        as well. Defaults to False (can be expensive in large trees).
-
-    Returns
-    -------
-    RunMaterialized
-        Summary of what was created, including the final run directory path.
+        If True and index_copied is True, compute SHA-256 for copied/linked files as well.
 
     Notes
     -----
-    This function is a convenience wrapper around the Materializer class below.
     If you will materialize many runs from the *same* plan, prefer constructing
     a Materializer(plan, ...) once and calling .run(subs) repeatedly to avoid
     re-reading/parsing templates from disk.
-    '''
+    """
+    renderer_inst: Renderer = TLRenderer() if renderer is None else renderer
+    staging_inst: StagingBackend = DefaultStaging() if staging is None else staging
+
     mat = Materializer(
         plan,
-        renderer=renderer or TLRenderer(),
+        renderer=renderer_inst,
+        staging=staging_inst,
         index_copied=index_copied,
         hash_rendered=hash_rendered,
         hash_copied=hash_copied,
@@ -126,25 +98,28 @@ def materialize_run(
 # Public API (class with template caching)
 # -----------------------------------------------------------------------------
 class Materializer:
-    '''Materializes run directories for a fixed plan, caching parsed templates.
+    """Materializes run directories for a fixed plan, caching parsed templates.
 
     Caching policy
     --------------
     - Templates are loaded and parsed once per Materializer instance.
     - We do not currently watch for on-disk template changes; construct a new
       Materializer if your plan or source files change.
-    '''
+    """
+
     def __init__(
         self,
         plan: RunPlan,
         *,
         renderer: Renderer | None = None,
+        staging: StagingBackend | None = None,
         index_copied: bool = False,
         hash_rendered: bool = True,
         hash_copied: bool = False,
     ) -> None:
         self.plan = plan
-        self.renderer: Renderer = renderer or TLRenderer()
+        self.renderer: Renderer = TLRenderer() if renderer is None else renderer
+        self.staging: StagingBackend = DefaultStaging() if staging is None else staging
         self.index_copied = index_copied
         self.hash_rendered = hash_rendered
         self.hash_copied = hash_copied
@@ -155,7 +130,7 @@ class Materializer:
             src_abs = rs.source_relpath.join_under(self.plan.prototype_dir.path)
             if not src_abs.is_file():
                 raise FileNotFoundError(
-                    f'Template not found: {rs.source_relpath} under {self.plan.prototype_dir.path}'
+                    f"Template not found: {rs.source_relpath} under {self.plan.prototype_dir.path}"
                 )
             src = Source.from_file(src_abs, rs.encoding)
             tpt = Template.from_source(src)
@@ -166,18 +141,18 @@ class Materializer:
 
     # -- main entry
     def run(self, subs: SubstitutionMap) -> RunMaterialized:
-        # 1) Compute identifiers and allocate staging paths
+        # 1) Compute identifiers and staging paths
         plan_fp = _plan_fingerprint(self.plan)
         subs_fp = _subs_fingerprint(subs)
         run_id = _make_run_id(plan_fp, subs_fp)
 
         runs_root: Path = self.plan.runs_dir.path
-        final_dir = runs_root / run_id
+        final_dir = self.staging.final_dir(runs_root, run_id)
         if final_dir.exists():
-            # You can switch to 'reuse' or 'nuke & recreate' later if you prefer.
+            # You can switch to "reuse" or "nuke & recreate" later if you prefer.
             raise FileExistsError(final_dir)
 
-        tmp_dir = _mktemp_under(runs_root, prefix=f'.tmp-{run_id}-')
+        tmp_dir = self.staging.temp_dir(runs_root, run_id)
 
         # 2) Copy prototype → temp, honoring include/exclude and skipping render targets
         _copy_tree(
@@ -194,15 +169,14 @@ class Materializer:
         records: list[FileRecord] = []
 
         for rs, tpt in self._template_cache.items():
-            # Render text with the injected engine (validates names/types via renderer)
             rendered_text = self.renderer.render_template(tpt, subs)
 
             # Apply newline policy from the plan (kept outside the renderer so the
-            # renderer stays purely 'Template → str').
+            # renderer stays purely "Template → str").
             if self.plan.newline is not None:
-                normalized = rendered_text.replace('\\r\\n', '\\n').replace('\\r', '\\n')
-                if self.plan.newline != '\\n':
-                    normalized = normalized.replace('\\n', self.plan.newline)
+                normalized = rendered_text.replace("\r\n", "\n").replace("\r", "\n")
+                if self.plan.newline != "\n":
+                    normalized = normalized.replace("\n", self.plan.newline)
                 if self.plan.ensure_trailing_newline and not normalized.endswith(self.plan.newline):
                     normalized += self.plan.newline
                 rendered_text = normalized
@@ -210,9 +184,7 @@ class Materializer:
             # Write to target path under the temp dir.
             dst_abs = rs.target_relpath.join_under(tmp_dir)
             dst_abs.parent.mkdir(parents=True, exist_ok=True)
-            dst_abs.write_text(rendered_text, encoding='utf-8')
-
-            # (Optional) If/when RenderSpec gains a mode field, chmod here.
+            dst_abs.write_text(rendered_text, encoding="utf-8")
 
             # Record size/digest for auditing and later integrity checks.
             stat = dst_abs.stat()
@@ -227,9 +199,8 @@ class Materializer:
                 )
             )
 
-        # 4) Atomically move the staged directory into place
-        final_dir.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(tmp_dir, final_dir)
+        # 4) Finalize the staged directory into place (atomic by default)
+        self.staging.finalize(tmp_dir, final_dir)
 
         # 5) Optionally index copied/linked files (after move so relpaths are stable)
         if self.index_copied:
@@ -254,12 +225,6 @@ class Materializer:
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
-def _mktemp_under(parent: Path, *, prefix: str) -> Path:
-    '''Create a unique temporary directory under a given parent directory.'''
-    parent.mkdir(parents=True, exist_ok=True)
-    return Path(tempfile.mkdtemp(prefix=prefix, dir=str(parent)))
-
-
 def _copy_tree(
     *,
     src: Path,
@@ -270,12 +235,12 @@ def _copy_tree(
     link_mode: LinkMode,
     index_sink: list[FileRecord] | None,
 ) -> None:
-    '''Copy/link a directory tree honoring include/exclude/deny lists.
+    """Copy/link a directory tree honoring include/exclude/deny lists.
 
-    Paths are compared using POSIX-style relative strings (e.g., 'a/b/c.txt').
-    '''
+    Paths are compared using POSIX-style relative strings (e.g., "a/b/c.txt").
+    """
     root_path = Path(src)
-    for root, _, files in os.walk(root_path):
+    for root, _dirs, files in os.walk(root_path):
         rel_root = Path(root).relative_to(root_path)
         for fname in files:
             relpath = (rel_root / fname).as_posix()
@@ -289,7 +254,7 @@ def _copy_tree(
                 continue
 
             src_file = Path(root) / fname
-            dst_file = Path(dst) / Path(*relpath.split('/'))
+            dst_file = Path(dst) / Path(*relpath.split("/"))
             dst_file.parent.mkdir(parents=True, exist_ok=True)
 
             # Choose copy strategy
@@ -335,10 +300,10 @@ def _index_copied_files(
     deny: set[str],
     hash_files: bool,
 ) -> list[FileRecord]:
-    '''Create FileRecord entries for copied/linked files under root.'''
+    """Create FileRecord entries for copied/linked files under root."""
     out: list[FileRecord] = []
     root_path = Path(root)
-    for r, _, files in os.walk(root_path):
+    for r, _dirs, files in os.walk(root_path):
         rel_root = Path(r).relative_to(root_path)
         for fname in files:
             relpath = (rel_root / fname).as_posix()
@@ -365,44 +330,41 @@ def _index_copied_files(
 
 
 def _sha256_file(p: Path) -> str:
-    '''Compute SHA-256 digest of a file in streaming fashion (1 MiB chunks).'''
+    """Compute SHA-256 digest of a file in streaming fashion (1 MiB chunks)."""
     h = hashlib.sha256()
-    with p.open('rb') as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+    with p.open("rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
 
 
 def _plan_fingerprint(plan: RunPlan) -> str:
-    '''Hash plan knobs that affect on-disk results (independent of subs).'''
+    """Hash plan knobs that affect on-disk results (independent of subs)."""
     payload = {
-        'include': tuple(plan.include_globs),
-        'exclude': tuple(plan.exclude_globs),
-        'newline': plan.newline,
-        'ensure_trailing_newline': plan.ensure_trailing_newline,
-        'link_mode': str(plan.link_mode),
-        'render_pairs': tuple((str(rs.source_relpath), str(rs.target_relpath)) for rs in plan.render_files),
+        "include": tuple(plan.include_globs),
+        "exclude": tuple(plan.exclude_globs),
+        "newline": plan.newline,
+        "ensure_trailing_newline": plan.ensure_trailing_newline,
+        "link_mode": str(plan.link_mode),
+        "render_pairs": tuple((str(rs.source_relpath), str(rs.target_relpath)) for rs in plan.render_files),
     }
     return _hash_stable(payload)
 
 
 def _subs_fingerprint(subs: SubstitutionMap) -> str:
-    '''Order-independent, stable fingerprint of the substitution map.'''
+    """Order-independent, stable fingerprint of the substitution map."""
     items: list[tuple[str, ValueLiteral]] = [(str(k), v) for k, v in subs.items()]
     items.sort(key=lambda kv: kv[0])
     return _hash_stable(items)
 
 
-def _hash_stable(obj: Any) -> str:
-    '''Stable JSON-based hashing utility used by both plan/subs fingerprints.
-
-    sort_keys=True + compact separators give stable, minimal digests.
-    '''
+def _hash_stable(obj: object) -> str:
+    """Stable JSON-based hashing utility used by both plan/subs fingerprints."""
     import json
-    blob = json.dumps(obj, sort_keys=True, separators=(',', ':')).encode('utf-8')
+    blob = json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()[:12]
 
 
 def _make_run_id(plan_fp: str, subs_fp: str) -> str:
-    '''Compose final run_id from the plan/subs fingerprints.'''
-    return f'{plan_fp}-{subs_fp}'
+    """Compose final run_id from the plan/subs fingerprints."""
+    return f"{plan_fp}-{subs_fp}"
