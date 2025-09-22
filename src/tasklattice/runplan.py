@@ -19,8 +19,10 @@ UserRenderSpec: TypeAlias = UserRelPath | Tuple[UserRelPath, UserRelPath]
 
 @dataclass(frozen=True, slots=True)
 class RenderSpec:
-    source_relpath: RelPath                 # e.g., "input/config.yaml" (relative to prototype_dir)
-    target_relpath: RelPath | None = None   # default: same as relpath
+    source_relpath: RelPath   # e.g., "input/config.yaml" (relative to prototype_dir)
+    target_relpath: RelPath   # default: same as relpath
+    encoding: str = "utf-8"
+    mode: int = 0o644
 
     @staticmethod
     def construct(prototype_dir: AbsDir, item: UserRenderSpec) -> RenderSpec:
