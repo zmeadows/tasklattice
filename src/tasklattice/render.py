@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Protocol, Mapping, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 from tasklattice.source import SourceSpan
 from tasklattice.template import Template
@@ -284,7 +284,8 @@ def render(tpt: Template, subs: SubstitutionMap) -> str:
 @runtime_checkable
 class Renderer(Protocol):
     """Capability surface for turning a parsed Template into rendered text."""
-    def render_template(self, tpt: Template, subs: Mapping[str, Any]) -> str: ...
+    def render_template(self, tpt: Template, subs: SubstitutionMap) -> str:
+        ...
 
 class TLRenderer:
     """Default renderer that delegates to tasklattice.render.render()."""

@@ -2,40 +2,27 @@
 #
 # OVERVIEW
 # ========
-# This module performs the "define → produce" transition. Given a **RunPlan** (a
+# This module performs the "define → produce" transition. Given a RunPlan (a
 # pure description of what should be copied and which files should be rendered)
-# and a **SubstitutionMap** (the concrete parameter values for one run), it
-# materializes a *real* run directory on disk and returns a compact, immutable
+# and a SubstitutionMap (the concrete parameter values for one run), it
+# materializes a real run directory on disk and returns a compact, immutable
 # description of what was written.
 #
-# Overall flow:
-#   1) Compute a deterministic run_id (from a fingerprint of plan knobs + the
-#      substitutions) and allocate a hidden temp directory under the plan’s
-#      results root.
-#   2) Copy the prototype tree into the temp directory, honoring include/exclude
-#      globs, but **skipping** any files that are declared render targets.
-#   3) For each RenderSpec, read the template **from the prototype** (not the
-#      temp dir), render it using your existing `tasklattice.render.render`
-#      function, apply newline policy, and write the result at the target path
-#      in the temp directory.
-#   4) Atomically rename (os.replace) the temp directory to the final run
-#      directory `<results_dir>/<run_id>`.
+# Design goals:
+# - Runner-agnostic (local vs slurm doesn’t matter).
+# - Deterministic run IDs constructed from a fingerprint of plan knobs and the
+#   substitution map (order-independent).
+# - Strict about inputs (fail fast if sources are missing or empty).
+# - Small surface area with room to grow (e.g., indexing copied files, link modes).
 #
-# The returned value, **RunMaterialized**, points at the final directory, carries
-# the fingerprints/ids and a per-file audit record (target path, optional source
-# path, size and sha256). You can hand this object directly to a Runner later.
+# What’s new vs the very first draft:
+# - materialize_run now accepts a Renderer instance (default: TLRenderer) so you
+#   can swap in custom rendering strategies without touching this module.
+# - A Materializer class caches parsed Templates so multiple variations of the
+#   *same* plan don’t re-read/parse template files from disk.
+# - _copy_tree now honors RunPlan.link_mode (copy/symlink/hardlink) with graceful
+#   fallbacks to copy() if the platform/filesystem disallows links.
 #
-# Design Notes
-# ------------
-# - This module is **runner-agnostic** (local vs slurm doesn’t matter).
-# - It depends on your existing modules and naming:
-#     * `_paths.AbsDir`, `_paths.RelPath`
-#     * `runplan.RunPlan`, `runplan.RenderSpec`
-#     * `render.Template`, `render.Source`, and `render.render(Template, subs)`
-# - We keep helpers tiny and local (copy/globs/hash). If later you want a
-#   StagingBackend abstraction or different copy strategies (symlink/hardlink),
-#   it can be added without changing the public `materialize_run` surface.
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -52,178 +39,227 @@ from tasklattice._paths import AbsDir, RelPath
 from tasklattice.core import SubstitutionMap, ValueLiteral
 from tasklattice.template import Template
 from tasklattice.source import Source
-from tasklattice.render import render
-from tasklattice.runplan import RunPlan
+from tasklattice.render import Renderer, TLRenderer
+from tasklattice.runplan import RunPlan, RenderSpec, LinkMode
 
 
 # -----------------------------------------------------------------------------
-# FileRecord
+# Data structures
 # -----------------------------------------------------------------------------
-# A compact, immutable record of one file present in the *materialized* run
-# directory. For now we only record files created by rendering (was_rendered=True),
-# but you can also extend this to include copied files later if you want a full
-# inventory. `source_relpath` is included to make it easy to trace which template
-# produced a given target.
 @dataclass(frozen=True, slots=True)
 class FileRecord:
+    '''One file produced in a run directory.'''
     target_relpath: RelPath          # target path (relative to run dir)
-    source_relpath: RelPath | None   # None if not applicable (reserved for future copies)
+    source_relpath: RelPath | None   # for rendered files: template source; for copies: original relpath
     was_rendered: bool               # True for rendered files
     size_bytes: int | None = None    # size of the file written at target
     sha256: str | None = None        # digest of the file content at target
 
 
-# -----------------------------------------------------------------------------
-# RunMaterialized
-# -----------------------------------------------------------------------------
-# The immutable description of one *real* run directory on disk. The `run_dir`
-# is an AbsDir that exists when this object is returned. The two short hashes
-# are useful for caching and reproducibility:
-#   - plan_fingerprint: hash of plan knobs that affect on-disk results but
-#     do not depend on parameter values (include/exclude/newline policy, etc.)
-#   - subs_fingerprint: hash of the concrete substitutions for this run
 @dataclass(frozen=True, slots=True)
 class RunMaterialized:
+    '''Immutable description of a single *realized* run directory.'''
     run_id: str
     run_dir: AbsDir                     # final directory: <results_dir>/<run_id>
     plan_fingerprint: str               # 12-char hex digest
     subs_fingerprint: str               # 12-char hex digest
-    records: tuple[FileRecord, ...]     # rendered files (extendable later)
+    records: tuple[FileRecord, ...]     # rendered files (optionally includes copies later)
 
 
 # -----------------------------------------------------------------------------
-# materialize_run
+# Public API (function)
 # -----------------------------------------------------------------------------
-# The single entry point: materialize one run described by `plan` with concrete
-# substitutions `subs`. This function is intentionally narrow and pure:
-#   - It does **not** submit or execute the run; it only creates the directory.
-#   - It is **runner-agnostic**; callers can feed the result to any Runner.
-#   - It always renders from the **prototype** and writes to a temp dir first.
-#
-# Error semantics:
-#   - If the final run directory already exists, raise FileExistsError.
-#   - If a template listed in RenderSpec is missing (repo drift), raise
-#     FileNotFoundError.
-#   - If any filesystem operation fails, let the OSError bubble up; callers can
-#     decide how to retry/clean up.
-def materialize_run(plan: RunPlan, *, subs: SubstitutionMap) -> RunMaterialized:
-    # 1) Compute identifiers and allocate staging paths
-    plan_fp = _plan_fingerprint(plan)
-    subs_fp = _subs_fingerprint(subs)
-    run_id = _make_run_id(plan_fp, subs_fp)
+def materialize_run(
+    plan: RunPlan,
+    *,
+    subs: SubstitutionMap,
+    renderer: Renderer | None = None,
+    index_copied: bool = False,
+    hash_rendered: bool = True,
+    hash_copied: bool = False,
+) -> RunMaterialized:
+    '''Materialize exactly one run for the given plan + substitutions.
 
-    runs_root: Path = plan.runs_dir.path
-    final_dir = runs_root / run_id
-    if final_dir.exists():
-        # You can switch to "reuse" or "nuke & recreate" later if you prefer.
-        raise FileExistsError(final_dir)
+    Parameters
+    ----------
+    plan : RunPlan
+        The blueprint for what to copy and which files to render.
+    subs : SubstitutionMap
+        Concrete parameter values for this variation.
+    renderer : Renderer | None
+        Rendering engine. Defaults to TLRenderer() which delegates to
+        tasklattice.render.render(). Accepting a protocol here lets callers inject
+        custom behavior or diagnostics without changing this module.
+    index_copied : bool
+        If True, include FileRecord entries for *copied/linked* files (not just
+        rendered outputs). Defaults to False for speed.
+    hash_rendered : bool
+        If True, compute SHA-256 digests for rendered outputs and store them in
+        FileRecord.sha256. Defaults to True.
+    hash_copied : bool
+        If True and index_copied is True, compute SHA-256 digests for copied files
+        as well. Defaults to False (can be expensive in large trees).
 
-    tmp_dir = _mktemp_under(runs_root, prefix=f".tmp-{run_id}-")
+    Returns
+    -------
+    RunMaterialized
+        Summary of what was created, including the final run directory path.
 
-    # 2) Copy prototype → temp, honoring include/exclude and skipping render targets
-    deny_set = {str(rs.target_relpath) for rs in plan.render_files}  # use POSIX rel strings
-    _copy_tree(
-        src=plan.prototype_dir.path,
-        dst=tmp_dir,
-        include=plan.include_globs,
-        exclude=plan.exclude_globs,
-        deny=deny_set,
+    Notes
+    -----
+    This function is a convenience wrapper around the Materializer class below.
+    If you will materialize many runs from the *same* plan, prefer constructing
+    a Materializer(plan, ...) once and calling .run(subs) repeatedly to avoid
+    re-reading/parsing templates from disk.
+    '''
+    mat = Materializer(
+        plan,
+        renderer=renderer or TLRenderer(),
+        index_copied=index_copied,
+        hash_rendered=hash_rendered,
+        hash_copied=hash_copied,
     )
+    return mat.run(subs)
 
-    # 3) Render each template (read from prototype; write into tmp)
-    records: list[FileRecord] = []
 
-    for rs in plan.render_files:
-        # Read template from the prototype dir (guard against repo drift)
-        src_abs = rs.source_relpath.join_under(plan.prototype_dir.path)
-        if not src_abs.is_file():
-            raise FileNotFoundError(
-                f"Template not found: {rs.source_relpath} under {plan.prototype_dir.path}"
-            )
+# -----------------------------------------------------------------------------
+# Public API (class with template caching)
+# -----------------------------------------------------------------------------
+class Materializer:
+    '''Materializes run directories for a fixed plan, caching parsed templates.
 
-        # Build a Template using your existing parsing pipeline.
-        # Source.from_file() will infer the Profile based on the file path (extension),
-        # decode with the given encoding (default utf-8), and raise if the file is empty
-        # or unreadable. Then Template.from_source(...) builds the parsed structure
-        # (spans + placeholders), which `render(...)` consumes.
-        # NOTE: If/when you add a per-file encoding to RenderSpec, use it here.
-        src = Source.from_file(src_abs, encoding="utf-8")
-        tpt = Template.from_source(src)
+    Caching policy
+    --------------
+    - Templates are loaded and parsed once per Materializer instance.
+    - We do not currently watch for on-disk template changes; construct a new
+      Materializer if your plan or source files change.
+    '''
+    def __init__(
+        self,
+        plan: RunPlan,
+        *,
+        renderer: Renderer | None = None,
+        index_copied: bool = False,
+        hash_rendered: bool = True,
+        hash_copied: bool = False,
+    ) -> None:
+        self.plan = plan
+        self.renderer: Renderer = renderer or TLRenderer()
+        self.index_copied = index_copied
+        self.hash_rendered = hash_rendered
+        self.hash_copied = hash_copied
 
-        # Render with your engine. The engine already validates placeholder names,
-        # types, and domains via _validate_map(...) before materializing the output.
-        rendered_text = render(tpt, subs)
+        # Preload and parse all template sources so subsequent runs avoid I/O & parsing.
+        self._template_cache: dict[RenderSpec, Template] = {}
+        for rs in self.plan.render_files:
+            src_abs = rs.source_relpath.join_under(self.plan.prototype_dir.path)
+            if not src_abs.is_file():
+                raise FileNotFoundError(
+                    f'Template not found: {rs.source_relpath} under {self.plan.prototype_dir.path}'
+                )
+            src = Source.from_file(src_abs, rs.encoding)
+            tpt = Template.from_source(src)
+            self._template_cache[rs] = tpt
 
-        # Apply newline policy from the plan (kept outside the renderer so the
-        # renderer stays purely "Template → str").
-        if plan.newline is not None:
-            # Normalize all inputs to "\n", then convert to requested newline.
-            normalized = rendered_text.replace("\r\n", "\n").replace("\r", "\n")
-            if plan.newline != "\n":
-                normalized = normalized.replace("\n", plan.newline)
-            if plan.ensure_trailing_newline and not normalized.endswith(plan.newline):
-                normalized += plan.newline
-            rendered_text = normalized
+        # Build deny set once (POSIX rel strings) for copy phase.
+        self._deny_set: set[str] = {str(rs.target_relpath) for rs in self.plan.render_files}
 
-        # Write the rendered text to the target path under the **temp** dir.
-        dst_abs = rs.target_relpath.join_under(tmp_dir)
-        dst_abs.parent.mkdir(parents=True, exist_ok=True)
-        dst_abs.write_text(rendered_text, encoding="utf-8")
+    # -- main entry
+    def run(self, subs: SubstitutionMap) -> RunMaterialized:
+        # 1) Compute identifiers and allocate staging paths
+        plan_fp = _plan_fingerprint(self.plan)
+        subs_fp = _subs_fingerprint(subs)
+        run_id = _make_run_id(plan_fp, subs_fp)
 
-        # (Optional) If/when RenderSpec gains a `mode` field, do a best-effort chmod here.
+        runs_root: Path = self.plan.runs_dir.path
+        final_dir = runs_root / run_id
+        if final_dir.exists():
+            # You can switch to 'reuse' or 'nuke & recreate' later if you prefer.
+            raise FileExistsError(final_dir)
 
-        # Record size/digest for auditing and later integrity checks.
-        stat = dst_abs.stat()
-        records.append(
-            FileRecord(
-                target_relpath=rs.target_relpath,
-                source_relpath=rs.source_relpath,
-                was_rendered=True,
-                size_bytes=stat.st_size,
-                sha256=_sha256_file(dst_abs),
-            )
+        tmp_dir = _mktemp_under(runs_root, prefix=f'.tmp-{run_id}-')
+
+        # 2) Copy prototype → temp, honoring include/exclude and skipping render targets
+        _copy_tree(
+            src=self.plan.prototype_dir.path,
+            dst=tmp_dir,
+            include=self.plan.include_globs,
+            exclude=self.plan.exclude_globs,
+            deny=self._deny_set,
+            link_mode=self.plan.link_mode,
+            index_sink=None,  # we optionally index after rendering to include sizes/hashes
         )
 
-    # 4) Atomically move the finished directory into place so consumers never
-    #    see a partially written run.
-    os.replace(tmp_dir, final_dir)
+        # 3) Render each template (write into tmp)
+        records: list[FileRecord] = []
 
-    # Return the immutable description. We wrap final_dir in AbsDir.existing()
-    # to guarantee the invariant for downstream code.
-    return RunMaterialized(
-        run_id=run_id,
-        run_dir=AbsDir.existing(final_dir),
-        plan_fingerprint=plan_fp,
-        subs_fingerprint=subs_fp,
-        records=tuple(records),
-    )
+        for rs, tpt in self._template_cache.items():
+            # Render text with the injected engine (validates names/types via renderer)
+            rendered_text = self.renderer.render_template(tpt, subs)
+
+            # Apply newline policy from the plan (kept outside the renderer so the
+            # renderer stays purely 'Template → str').
+            if self.plan.newline is not None:
+                normalized = rendered_text.replace('\\r\\n', '\\n').replace('\\r', '\\n')
+                if self.plan.newline != '\\n':
+                    normalized = normalized.replace('\\n', self.plan.newline)
+                if self.plan.ensure_trailing_newline and not normalized.endswith(self.plan.newline):
+                    normalized += self.plan.newline
+                rendered_text = normalized
+
+            # Write to target path under the temp dir.
+            dst_abs = rs.target_relpath.join_under(tmp_dir)
+            dst_abs.parent.mkdir(parents=True, exist_ok=True)
+            dst_abs.write_text(rendered_text, encoding='utf-8')
+
+            # (Optional) If/when RenderSpec gains a mode field, chmod here.
+
+            # Record size/digest for auditing and later integrity checks.
+            stat = dst_abs.stat()
+            sha = _sha256_file(dst_abs) if self.hash_rendered else None
+            records.append(
+                FileRecord(
+                    target_relpath=rs.target_relpath,
+                    source_relpath=rs.source_relpath,
+                    was_rendered=True,
+                    size_bytes=stat.st_size,
+                    sha256=sha,
+                )
+            )
+
+        # 4) Atomically move the staged directory into place
+        final_dir.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(tmp_dir, final_dir)
+
+        # 5) Optionally index copied/linked files (after move so relpaths are stable)
+        if self.index_copied:
+            copied_records = _index_copied_files(
+                root=final_dir,
+                include=self.plan.include_globs,
+                exclude=self.plan.exclude_globs,
+                deny=self._deny_set,
+                hash_files=self.hash_copied,
+            )
+            records.extend(copied_records)
+
+        return RunMaterialized(
+            run_id=run_id,
+            run_dir=AbsDir.existing(final_dir),
+            plan_fingerprint=plan_fp,
+            subs_fingerprint=subs_fp,
+            records=tuple(records),
+        )
 
 
 # -----------------------------------------------------------------------------
-# _mktemp_under
+# Helpers
 # -----------------------------------------------------------------------------
-# Create a unique temporary directory *under* a given parent directory. Keeping
-# the temp dir on the same filesystem as the final dir ensures `os.replace`
-# remains atomic (and fast). The parent is created if needed.
 def _mktemp_under(parent: Path, *, prefix: str) -> Path:
+    '''Create a unique temporary directory under a given parent directory.'''
     parent.mkdir(parents=True, exist_ok=True)
     return Path(tempfile.mkdtemp(prefix=prefix, dir=str(parent)))
 
 
-# -----------------------------------------------------------------------------
-# _copy_tree
-# -----------------------------------------------------------------------------
-# Copy a directory tree (the prototype) into a destination (the temp run dir),
-# honoring:
-#   - `include`: a whitelist of glob patterns (POSIX-style relpaths)
-#   - `exclude`: a blacklist of glob patterns
-#   - `deny`:    an explicit set of POSIX-style relpaths that must never be copied
-#
-# Notes:
-# - Paths are compared using POSIX-style relative strings (e.g., "a/b/c.txt"),
-#   which keeps matching consistent across platforms.
-# - We currently always *copy* files (shutil.copy2). If you later add a link
-#   mode (symlink/hardlink), you can select the method here.
 def _copy_tree(
     *,
     src: Path,
@@ -231,93 +267,142 @@ def _copy_tree(
     include: Sequence[str],
     exclude: Sequence[str],
     deny: set[str],
+    link_mode: LinkMode,
+    index_sink: list[FileRecord] | None,
 ) -> None:
-    for root, _, files in os.walk(src):
-        root_path = Path(root)
-        rel_root = root_path.relative_to(src).as_posix()  # "." or "a/b"
+    '''Copy/link a directory tree honoring include/exclude/deny lists.
 
+    Paths are compared using POSIX-style relative strings (e.g., 'a/b/c.txt').
+    '''
+    root_path = Path(src)
+    for root, _, files in os.walk(root_path):
+        rel_root = Path(root).relative_to(root_path)
         for fname in files:
-            rel_posix = f"{rel_root}/{fname}" if rel_root != "." else fname
-
-            # include/exclude filters
-            if include and not any(fnmatch.fnmatch(rel_posix, pat) for pat in include):
+            relpath = (rel_root / fname).as_posix()
+            # Filter using include/exclude first
+            if include and not any(fnmatch.fnmatch(relpath, pat) for pat in include):
                 continue
-            if exclude and any(fnmatch.fnmatch(rel_posix, pat) for pat in exclude):
+            if exclude and any(fnmatch.fnmatch(relpath, pat) for pat in exclude):
                 continue
-
-            # never copy declared render targets (deny-set)
-            if rel_posix in deny:
+            # Never copy declared render targets
+            if relpath in deny:
                 continue
 
-            src_file = root_path / fname
-            dst_file = dst / Path(*rel_posix.split("/"))
+            src_file = Path(root) / fname
+            dst_file = Path(dst) / Path(*relpath.split('/'))
             dst_file.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_file, dst_file)
+
+            # Choose copy strategy
+            if link_mode is LinkMode.COPY:
+                shutil.copy2(src_file, dst_file)
+            elif link_mode is LinkMode.SYMLINK:
+                try:
+                    # On Windows, symlink perms may require admin; if it fails, fallback.
+                    if dst_file.exists():
+                        dst_file.unlink()
+                    os.symlink(src_file, dst_file)
+                except OSError:
+                    shutil.copy2(src_file, dst_file)
+            elif link_mode is LinkMode.HARDLINK:
+                try:
+                    if dst_file.exists():
+                        dst_file.unlink()
+                    os.link(src_file, dst_file)
+                except OSError:
+                    shutil.copy2(src_file, dst_file)
+            else:
+                # Future-proof: default to copy
+                shutil.copy2(src_file, dst_file)
+
+            if index_sink is not None:
+                st = dst_file.stat()
+                index_sink.append(
+                    FileRecord(
+                        target_relpath=RelPath(relpath),
+                        source_relpath=RelPath(relpath),
+                        was_rendered=False,
+                        size_bytes=st.st_size,
+                        sha256=None,  # filled later if needed
+                    )
+                )
 
 
-# -----------------------------------------------------------------------------
-# _sha256_file
-# -----------------------------------------------------------------------------
-# Compute the SHA-256 digest of a file in streaming fashion (1 MiB chunks).
-# Useful for detecting accidental mutations later or verifying correctness in
-# tests without loading entire files into RAM.
+def _index_copied_files(
+    *,
+    root: Path,
+    include: Sequence[str],
+    exclude: Sequence[str],
+    deny: set[str],
+    hash_files: bool,
+) -> list[FileRecord]:
+    '''Create FileRecord entries for copied/linked files under root.'''
+    out: list[FileRecord] = []
+    root_path = Path(root)
+    for r, _, files in os.walk(root_path):
+        rel_root = Path(r).relative_to(root_path)
+        for fname in files:
+            relpath = (rel_root / fname).as_posix()
+            if include and not any(fnmatch.fnmatch(relpath, pat) for pat in include):
+                continue
+            if exclude and any(fnmatch.fnmatch(relpath, pat) for pat in exclude):
+                continue
+            if relpath in deny:
+                continue
+
+            p = Path(r) / fname
+            st = p.stat()
+            sha = _sha256_file(p) if hash_files else None
+            out.append(
+                FileRecord(
+                    target_relpath=RelPath(relpath),
+                    source_relpath=RelPath(relpath),
+                    was_rendered=False,
+                    size_bytes=st.st_size,
+                    sha256=sha,
+                )
+            )
+    return out
+
+
 def _sha256_file(p: Path) -> str:
+    '''Compute SHA-256 digest of a file in streaming fashion (1 MiB chunks).'''
     h = hashlib.sha256()
-    with p.open("rb") as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+    with p.open('rb') as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
             h.update(chunk)
     return h.hexdigest()
 
 
-# -----------------------------------------------------------------------------
-# _plan_fingerprint
-# -----------------------------------------------------------------------------
-# Create a short hash capturing only the **Plan knobs** that affect the on-disk
-# results independent of parameter values. Keeping this deliberately narrow
-# allows you to recognize when two runs differ *only* by substitutions.
-#
-# If/when you add additional knobs (e.g., a renderer profile, link mode, etc.),
-# extend this payload in a backward-compatible way.
 def _plan_fingerprint(plan: RunPlan) -> str:
+    '''Hash plan knobs that affect on-disk results (independent of subs).'''
     payload = {
-        "include": tuple(plan.include_globs),
-        "exclude": tuple(plan.exclude_globs),
-        "newline": plan.newline,
-        "ensure_trailing_newline": plan.ensure_trailing_newline,
-        # NOTE: If RunPlan grows fields like link_mode or renderer profile,
-        # include them here too.
+        'include': tuple(plan.include_globs),
+        'exclude': tuple(plan.exclude_globs),
+        'newline': plan.newline,
+        'ensure_trailing_newline': plan.ensure_trailing_newline,
+        'link_mode': str(plan.link_mode),
+        'render_pairs': tuple((str(rs.source_relpath), str(rs.target_relpath)) for rs in plan.render_files),
     }
     return _hash_stable(payload)
 
 
-# -----------------------------------------------------------------------------
-# _subs_fingerprint
-# -----------------------------------------------------------------------------
 def _subs_fingerprint(subs: SubstitutionMap) -> str:
+    '''Order-independent, stable fingerprint of the substitution map.'''
     items: list[tuple[str, ValueLiteral]] = [(str(k), v) for k, v in subs.items()]
     items.sort(key=lambda kv: kv[0])
     return _hash_stable(items)
 
 
-# -----------------------------------------------------------------------------
-# _hash_stable
-# -----------------------------------------------------------------------------
-# Stable JSON-based hashing utility used by both plan/subs fingerprints.
-# - sort_keys=True + compact separators give stable, minimal digests
-# - we shorten to 12 hex chars for readability; adjust if you want more entropy
 def _hash_stable(obj: Any) -> str:
-    import json
+    '''Stable JSON-based hashing utility used by both plan/subs fingerprints.
 
-    blob = json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    sort_keys=True + compact separators give stable, minimal digests.
+    '''
+    import json
+    blob = json.dumps(obj, sort_keys=True, separators=(',', ':')).encode('utf-8')
     return hashlib.sha256(blob).hexdigest()[:12]
 
 
-# -----------------------------------------------------------------------------
-# _make_run_id
-# -----------------------------------------------------------------------------
-# Compose the final run_id from the plan/subs fingerprints. This default keeps
-# the id short and reproducible. If you later want a human-readable KV slug
-# suffix (like "nx=256__ny=128"), you can add it here without changing callers.
 def _make_run_id(plan_fp: str, subs_fp: str) -> str:
-    return f"{plan_fp}-{subs_fp}"
-
+    '''Compose final run_id from the plan/subs fingerprints.'''
+    return f'{plan_fp}-{subs_fp}'
