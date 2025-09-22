@@ -1,16 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
+from functools import partial
 from types import MappingProxyType
 from typing import Any, Mapping, Sequence, Tuple, TypeAlias
-from functools import partial
 
-from tasklattice._paths import (
-    UserAbsPath,
-    UserRelPath,
-    AbsDir,
-    RelPath
-)
+from tasklattice._paths import AbsDir, RelPath, UserAbsPath, UserRelPath
 
 # TODO: handle/validate expected file encodings
 # TODO: what if prototype directory gets modified during course of TaskLattice script...?
@@ -41,6 +37,13 @@ class RenderSpec:
         return RenderSpec(src_rel, tgt_rel)
 
 
+class LinkMode(StrEnum):
+    """How to materialize files copied from the prototype tree."""
+    COPY = "copy"         # shutil.copy2 (portable; preserves mtime/metadata)
+    SYMLINK = "symlink"   # symlink to prototype (fast; requires perms on Windows)
+    HARDLINK = "hardlink" # hardlink to prototype (fast; same filesystem only)
+
+
 _DEFAULT_EXCLUDE_GLOBS: Tuple[str, ...] = (
     # safe defaults
     ".git/**", ".hg/**", ".svn/**",
@@ -55,6 +58,8 @@ class RunPlan:
     prototype_dir: AbsDir
 
     render_files: Tuple[RenderSpec, ...]
+
+    link_mode: LinkMode
 
     include_globs: Tuple[str, ...] # applied before exclude
     exclude_globs: Tuple[str, ...] # safe defaults
@@ -74,6 +79,7 @@ class RunPlan:
              runs_dir: UserAbsPath,
              prototype_dir: UserAbsPath,
              render_files: Sequence[UserRenderSpec],
+             link_mode: LinkMode = LinkMode.COPY,
              include_globs: Sequence[str] = ("**/*",),
              exclude_globs: Sequence[str] = _DEFAULT_EXCLUDE_GLOBS,
              newline: str | None = "\n",
@@ -86,6 +92,8 @@ class RunPlan:
 
         pd = AbsDir.existing(prototype_dir)
         object.__setattr__(self, "prototype_dir", pd)
+
+        object.__setattr__(self, "link_mode", link_mode)
 
         rs = map(partial(RenderSpec.construct, pd), render_files)
         object.__setattr__(self, "render_files", tuple(rs))
