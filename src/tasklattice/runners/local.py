@@ -41,21 +41,24 @@ from tasklattice.constants import (
     RUNSTATE_SCHEMA,
     meta_dir,
     runstate_path,
-    stdout_path as default_stdout_path,
+)
+from tasklattice.constants import (
     stderr_path as default_stderr_path,
+)
+from tasklattice.constants import (
+    stdout_path as default_stdout_path,
 )
 from tasklattice.materialize import RunMaterialized
 from tasklattice.runners.base import (
     LaunchSpec,
     LaunchSpecFactory,
     RunHandle,
-    RunStatus,
     Runner,
+    RunStatus,
     UserLaunchInput,
     ensure_launch_factory,
     validate_spec_common,
 )
-
 
 # -----------------------------------------------------------------------------
 # Small utilities (json i/o, timestamps)
@@ -168,6 +171,8 @@ class _LocalRunHandle(RunHandle):
         Best-effort cancellation of the process group (POSIX) or process (Windows).
         The monitor will notice _cancel_requested and report CANCELLED on exit.
         """
+        _ = reason
+
         self._cancel_requested = True
         if os.name == "posix":
             try:
@@ -363,7 +368,7 @@ class LocalRunner(Runner):
                 stdout=open(stdout_p, "ab", buffering=0),
                 stderr=open(stderr_p, "ab", buffering=0),
                 text=False,          # <-- explicit
-                encoding=None,       # <-- explicit (helps Pyright choose the bytes overload)
+                encoding=None,       # <-- explicit
                 errors=None,         # <-- explicit
                 **popen_kwargs,
             )
@@ -414,6 +419,7 @@ class LocalRunner(Runner):
         return handle
 
     def attach(self, run: RunMaterialized) -> RunHandle | None:
+        _ = run
         # Later: read run.json, reconstruct handle using pid & watch again.
         return None
 

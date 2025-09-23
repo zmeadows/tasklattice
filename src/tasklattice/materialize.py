@@ -1,25 +1,24 @@
 # tasklattice/materialize.py
 from __future__ import annotations
 
+import fnmatch
+import hashlib
+import json
+import math
+import os
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence, Any, Mapping
-
-import fnmatch
-import math
-import hashlib
-import os
-import json
-import shutil
+from typing import Any, Mapping, Sequence
 
 from tasklattice._paths import AbsDir, RelPath
+from tasklattice.constants import INPUTS_SCHEMA, inputs_path, meta_dir
 from tasklattice.core import SubstitutionMap, ValueLiteral
-from tasklattice.template import Template
-from tasklattice.source import Source
 from tasklattice.render import Renderer, TLRenderer
-from tasklattice.runplan import RunPlan, RenderSpec, LinkMode
-from tasklattice.staging import StagingBackend, DefaultStaging
-from tasklattice.constants import meta_dir, inputs_path, INPUTS_SCHEMA
+from tasklattice.runplan import LinkMode, RenderSpec, RunPlan
+from tasklattice.source import Source
+from tasklattice.staging import DefaultStaging, StagingBackend
+from tasklattice.template import Template
 
 
 # -----------------------------------------------------------------------------
@@ -206,6 +205,13 @@ class Materializer:
         # 4) Finalize the staged directory into place (atomic by default)
         self.staging.finalize(tmp_dir, final_dir)
 
+        write_inputs_json(
+            final_dir,                         # Path to the run's permanent directory
+            params=subs,                       # Mapping[ParamName, ValueLiteral]
+            plan_fingerprint=plan_fp,          # str
+            subs_fingerprint=subs_fp,          # str
+        )
+
         # 5) Optionally index copied/linked files (after move so relpaths are stable)
         if self.index_copied:
             copied_records = _index_copied_files(
@@ -326,8 +332,8 @@ def _copy_tree(
                     os.link(src_file, dst_file)
                 except OSError:
                     shutil.copy2(src_file, dst_file)
-            else:
-                # Future-proof: default to copy
+            else: 
+                # Future-proof: default to copy 
                 shutil.copy2(src_file, dst_file)
 
             if index_sink is not None:
@@ -354,7 +360,7 @@ def _index_copied_files(
     """Create FileRecord entries for copied/linked files under root."""
     out: list[FileRecord] = []
     root_path = Path(root)
-    for r, _dirs, files in os.walk(root_path):
+    for r, _, files in os.walk(root_path):
         rel_root = Path(r).relative_to(root_path)
         for fname in files:
             relpath = (rel_root / fname).as_posix()
