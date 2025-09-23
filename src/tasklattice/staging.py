@@ -22,6 +22,7 @@ folder under the runs root and atomically move it into place with os.replace.
 
 @runtime_checkable
 class StagingBackend(Protocol):
+    # TODO: standardize runs_root vs. runs_dir
     def temp_dir(self, runs_root: Path, run_id: str) -> Path: ...
     def final_dir(self, runs_root: Path, run_id: str) -> Path: ...
     def finalize(self, tmp: Path, final_: Path) -> None: ...  # default: os.replace

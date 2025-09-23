@@ -3,11 +3,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Sequence
+from typing import Sequence, Any, Mapping
 
 import fnmatch
+import math
 import hashlib
 import os
+import json
 import shutil
 
 from tasklattice._paths import AbsDir, RelPath
@@ -17,6 +19,7 @@ from tasklattice.source import Source
 from tasklattice.render import Renderer, TLRenderer
 from tasklattice.runplan import RunPlan, RenderSpec, LinkMode
 from tasklattice.staging import StagingBackend, DefaultStaging
+from tasklattice.constants import meta_dir, inputs_path, INPUTS_SCHEMA
 
 
 # -----------------------------------------------------------------------------
@@ -39,6 +42,7 @@ class RunMaterialized:
     run_dir: AbsDir                     # final directory: <results_dir>/<run_id>
     plan_fingerprint: str               # 12-char hex digest
     subs_fingerprint: str               # 12-char hex digest
+    #TODO: rename file_records
     records: tuple[FileRecord, ...]     # rendered files (optionally includes copies later)
 
 
@@ -225,6 +229,53 @@ class Materializer:
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
+def _to_json_scalar(value: Any) -> Any:
+    """
+    Ensure value is JSON-serializable scalar (str/int/float/bool) and finite.
+    Raise ValueError on NaN/Inf so inputs.json is always valid JSON.
+    """
+    # bool is a subclass of int; check order carefully
+    if isinstance(value, (str, bool, int)):
+        return value
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+        raise ValueError(f"Non-finite float not allowed in inputs.json: {value!r}")
+    # If you need lists/dicts later, relax here; for now we keep ValueLiteral scalars only.
+    raise ValueError(f"Unsupported parameter value type for inputs.json: {type(value).__name__}")
+
+
+def _flatten_subs_for_inputs(subs: Mapping[Any, Any]) -> dict[str, Any]:
+    """
+    Convert your SubstitutionMap into a plain JSON-serializable dict with string keys.
+    """
+    out: dict[str, Any] = {}
+    for k, v in subs.items():
+        out[str(k)] = _to_json_scalar(v)
+    return out
+
+
+def write_inputs_json(run_dir: Path, *, params: Mapping[Any, Any],
+                      plan_fingerprint: str, subs_fingerprint: str) -> None:
+    """
+    Write the static materialization metadata for a run (once, post-finalize).
+    """
+    md = meta_dir(run_dir)
+    md.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "schema": INPUTS_SCHEMA,  # match run.json's 'schema' naming
+        "plan_fingerprint": plan_fingerprint,
+        "subs_fingerprint": subs_fingerprint,
+        "params": _flatten_subs_for_inputs(params),
+    }
+    path = inputs_path(run_dir)
+    tmp = path.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
 def _copy_tree(
     *,
     src: Path,
@@ -240,7 +291,7 @@ def _copy_tree(
     Paths are compared using POSIX-style relative strings (e.g., "a/b/c.txt").
     """
     root_path = Path(src)
-    for root, _dirs, files in os.walk(root_path):
+    for root, _, files in os.walk(root_path):
         rel_root = Path(root).relative_to(root_path)
         for fname in files:
             relpath = (rel_root / fname).as_posix()
