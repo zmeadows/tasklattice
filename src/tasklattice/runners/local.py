@@ -191,6 +191,7 @@ class _LocalRunHandle(RunHandle):
         - If running: signal process group (POSIX) or process (Windows) via runner under lock.
         """
 
+        # TODO: propagate the reason to the run.json events list
         _ = reason
 
         self._cancel_requested = True

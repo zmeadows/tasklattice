@@ -40,8 +40,7 @@ class RunMaterialized:
     run_dir: AbsDir                     # final directory: <results_dir>/<run_id>
     plan_fingerprint: str               # 12-char hex digest
     subs_fingerprint: str               # 12-char hex digest
-    #TODO: rename file_records
-    records: tuple[FileRecord, ...]     # rendered files (optionally includes copies later)
+    file_records: tuple[FileRecord, ...]     # rendered files (optionally includes copies later)
 
 
 # -----------------------------------------------------------------------------
@@ -227,7 +226,7 @@ class Materializer:
             run_dir=AbsDir.existing(final_dir),
             plan_fingerprint=plan_fp,
             subs_fingerprint=subs_fp,
-            records=tuple(records),
+            file_records=tuple(records),
         )
 
 
