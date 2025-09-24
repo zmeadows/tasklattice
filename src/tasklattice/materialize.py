@@ -221,6 +221,8 @@ class Materializer:
             )
             records.extend(copied_records)
 
+        _write_files_json(final_dir, records)
+
         return RunMaterialized(
             run_id=run_id,
             run_dir=AbsDir.existing(final_dir),
@@ -273,6 +275,25 @@ def _write_inputs_json(run_dir: Path, *, params: Mapping[Any, Any],
         "params": _flatten_subs_for_inputs(params),
     }
     path = inputs_path(run_dir)
+    tmp = path.with_suffix(".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
+def _write_files_json(run_dir: Path, records: Sequence[FileRecord]) -> None:
+    payload = [
+        {
+            "target_relpath": str(r.target_relpath),
+            "source_relpath": (str(r.source_relpath) if r.source_relpath is not None else None),
+            "was_rendered": r.was_rendered,
+            "size_bytes": r.size_bytes,
+            "sha256": r.sha256,
+        }
+        for r in records
+    ]
+    path = meta_dir(run_dir) / "files.json"
     tmp = path.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
