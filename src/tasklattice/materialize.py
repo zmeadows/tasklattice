@@ -8,7 +8,7 @@ import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping, Sequence, Iterable
 
 from tasklattice._paths import AbsDir, RelPath
 from tasklattice.constants import INPUTS_SCHEMA, inputs_path, meta_dir
@@ -221,7 +221,7 @@ class Materializer:
             )
             records.extend(copied_records)
 
-        _write_files_json(final_dir, records)
+        _write_files_json_streaming(final_dir, records)
 
         return RunMaterialized(
             run_id=run_id,
@@ -282,24 +282,43 @@ def _write_inputs_json(run_dir: Path, *, params: Mapping[Any, Any],
     os.replace(tmp, path)
 
 
-def _write_files_json(run_dir: Path, records: Sequence[FileRecord]) -> None:
-    payload = [
-        {
-            "target_relpath": str(r.target_relpath),
-            "source_relpath": (str(r.source_relpath) if r.source_relpath is not None else None),
-            "was_rendered": r.was_rendered,
-            "size_bytes": r.size_bytes,
-            "sha256": r.sha256,
-        }
-        for r in records
-    ]
+def _write_files_json_streaming(run_dir: Path, records: Iterable[FileRecord]) -> None:
     path = meta_dir(run_dir) / "files.json"
+
     tmp = path.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, sort_keys=True)
-        f.write("\n")
+        f.write('[')
+        first = True
+        for r in records:
+            item = {
+                "target_relpath": str(r.target_relpath),
+                "source_relpath": (str(r.source_relpath) if r.source_relpath is not None else None),
+                "was_rendered": r.was_rendered,
+                "size_bytes": r.size_bytes,
+                "sha256": r.sha256,
+            }
+            if first:
+                first = False
+            else:
+                f.write(',')
+            # compact separators keep the file small
+            f.write(json.dumps(item, separators=(",", ":")))
+        f.write(']\n')
+        f.flush()
+        os.fsync(f.fileno())
+
+    # make the rename durable too
     os.replace(tmp, path)
 
+    # TODO: extract this to stand-alone function to use elsewhere, perhaps just once.
+    try:
+        dir_fd = os.open(str(meta_dir(run_dir)), os.O_DIRECTORY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    except Exception:
+        pass  # best-effort on platforms that support it
 
 def _copy_tree(
     *,
