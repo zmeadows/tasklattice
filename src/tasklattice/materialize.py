@@ -94,6 +94,122 @@ def materialize_run(
     )
     return mat.run(subs)
 
+def load_materialized(run_dir: str | os.PathLike[str] | AbsDir) -> RunMaterialized:
+    """
+    Load an existing, fully materialized run directory created by TaskLattice.
+
+    Assumptions:
+    - ``_tl/inputs.json`` exists and contains ``plan_fingerprint`` and ``subs_fingerprint``.
+    - ``_tl/files.json`` exists (materialization-complete flag) and fully indexes the run's files.
+
+    Raises
+    ------
+    FileNotFoundError
+        If ``run_dir`` (or required metadata files) are missing.
+    ValueError
+        If metadata files are present but malformed or inconsistent.
+    """
+    # Normalize/validate directory handle
+    rd = run_dir if isinstance(run_dir, AbsDir) else AbsDir.existing(run_dir)
+
+    # Required metadata paths
+    ip = inputs_path(rd.path)             # .../_tl/inputs.json
+    fp = meta_dir(rd.path) / "files.json" # .../_tl/files.json
+
+    # --- inputs.json (required) ---
+    if not ip.is_file():
+        raise FileNotFoundError(f"Not a materialized TaskLattice run (missing {ip})")
+    try:
+        with ip.open("r", encoding="utf-8") as f:
+            inputs = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Corrupt inputs.json at {ip}: {e}") from e
+
+    plan_fp = inputs.get("plan_fingerprint")
+    subs_fp = inputs.get("subs_fingerprint")
+    if not isinstance(plan_fp, str) or not isinstance(subs_fp, str):
+        raise ValueError(
+            f"Malformed inputs.json at {ip}: expected string fields "
+            "'plan_fingerprint' and 'subs_fingerprint'"
+        )
+
+    # Canonical run_id (stable even if dir was renamed)
+    run_id = _make_run_id(plan_fp, subs_fp)
+
+    # --- files.json (required / completion flag) ---
+    if not fp.is_file():
+        raise FileNotFoundError(
+            f"Run is not fully materialized (missing {fp}). "
+            "This usually indicates a failed or incomplete atomic finalize."
+        )
+    try:
+        with fp.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Corrupt files.json at {fp}: {e}") from e
+
+    if not isinstance(data, list):
+        raise ValueError(f"Malformed files.json at {fp}: expected a JSON array")
+
+    records: list[FileRecord] = []
+    seen_targets: set[str] = set()
+
+    for i, item in enumerate(data):
+        if not isinstance(item, dict):
+            raise ValueError(f"Malformed files.json entry #{i}: expected object, got {type(item).__name__}")
+
+        try:
+            target_relpath_s = item["target_relpath"]
+            if not isinstance(target_relpath_s, str):
+                raise TypeError("target_relpath must be a string")
+
+            if target_relpath_s in seen_targets:
+                raise ValueError(f"Duplicate target_relpath in files.json: {target_relpath_s!r}")
+            seen_targets.add(target_relpath_s)
+
+            source_relpath_s = item.get("source_relpath")
+            if source_relpath_s is not None and not isinstance(source_relpath_s, str):
+                raise TypeError("source_relpath must be a string or null")
+
+            was_rendered = bool(item["was_rendered"])
+
+            size_bytes_v = item.get("size_bytes")
+            if size_bytes_v is not None:
+                size_bytes_v = int(size_bytes_v)
+
+            sha256_v = item.get("sha256")
+            if sha256_v is not None and not isinstance(sha256_v, str):
+                raise TypeError("sha256 must be a string or null")
+
+        except KeyError as e:
+            raise ValueError(f"Malformed files.json entry #{i}: missing key {e.args[0]!r}") from None
+        except Exception as e:
+            raise ValueError(f"Malformed files.json entry #{i}: {e}") from e
+
+        # Optional consistency check: referenced file exists on disk
+        # (If you prefer to trust the manifest blindly, you can remove this block.)
+        target_abs = rd.path / target_relpath_s
+        if not target_abs.exists():
+            raise FileNotFoundError(f"files.json references missing file: {target_abs}")
+
+        records.append(
+            FileRecord(
+                target_relpath=RelPath(target_relpath_s),
+                source_relpath=(RelPath(source_relpath_s) if source_relpath_s is not None else None),
+                was_rendered=was_rendered,
+                size_bytes=size_bytes_v,
+                sha256=sha256_v,
+            )
+        )
+
+    return RunMaterialized(
+        run_id=run_id,
+        run_dir=rd,
+        plan_fingerprint=plan_fp,
+        subs_fingerprint=subs_fp,
+        file_records=tuple(records),
+    )
+
 
 # -----------------------------------------------------------------------------
 # Public API (class with template caching)
