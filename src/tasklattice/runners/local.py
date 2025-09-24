@@ -196,7 +196,7 @@ class _LocalRunHandle(RunHandle):
         doc = _json_load(runstate_path(self._run_dir))
         if not doc:
             return RunStatus.CANCELLED if self._cancel_requested else RunStatus.FAILED
-        state = _as_status(str(doc.get("state")))
+        state = _as_status(doc.get("state"))
 
         # Auto-finalize stale RUNNING on POSIX if pid is gone
         if state == RunStatus.RUNNING and os.name == "posix":
@@ -208,7 +208,7 @@ class _LocalRunHandle(RunHandle):
             if pid is not None and not self._runner._pid_alive(pid):
                 self._runner._finalize_unknown_exit(self._run_dir, state=RunStatus.FAILED, reason="pid_not_found")
                 doc = _json_load(runstate_path(self._run_dir)) or {"state": RunStatus.FAILED}
-                state = _as_status(str(doc.get("state"))) or RunStatus.FAILED
+                state = _as_status(doc.get("state")) or RunStatus.FAILED
 
         try:
             return cast(RunStatus, state)
@@ -250,7 +250,7 @@ class _LocalRunHandle(RunHandle):
 
         if self._proc is None:
             doc = _json_load(runstate_path(self._run_dir)) or {}
-            state = _as_status(str(doc.get("state")))
+            state = _as_status(doc.get("state"))
             if state == RunStatus.RUNNING:
                 self._runner._cancel_attached(self._run_dir, force=force, handle=self)
                 return
@@ -483,7 +483,6 @@ class LocalRunner(Runner):
         we're on POSIX, auto-finalize to FAILED (pid_not_found).
         """
         run_dir: Path = run.run_dir.path
-        # lock = self._get_run_lock(run_dir)
         doc = _json_load(runstate_path(run_dir))
         if not doc:
             return None
@@ -509,7 +508,7 @@ class LocalRunner(Runner):
         run_id = str(doc.get("run_id") or run_dir.name)
         handle = _LocalRunHandle(self, run_id, run_dir, None, stdout_p, stderr_p)
 
-        state = _as_status(str(doc.get("state")))
+        state = _as_status(doc.get("state"))
         if state in {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.TIMED_OUT}:
             handle._started_evt.set()
             handle._finished_evt.set()
@@ -581,7 +580,7 @@ class LocalRunner(Runner):
         with lock:
             path = runstate_path(run_dir)
             doc = _json_load(path) or {}
-            cur = _as_status(str(doc.get("state")))
+            cur = _as_status(doc.get("state"))
             if cur in {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.TIMED_OUT}:
                 return
             doc["state"] = state
@@ -650,7 +649,7 @@ class LocalRunner(Runner):
         lock = self._get_run_lock(run_dir)
         with lock:
             doc = _json_load(runstate_path(run_dir)) or {}
-            state = _as_status(str(doc.get("state")))
+            state = _as_status(doc.get("state"))
             if state in {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.TIMED_OUT}:
                 return
             if state != RunStatus.RUNNING:
