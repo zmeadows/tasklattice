@@ -57,6 +57,7 @@ from tasklattice.runners.base import (
     RunHandle,
     Runner,
     RunStatus,
+    TERMINAL_STATES,
     UserLaunchInput,
     ensure_launch_factory,
     validate_spec_common,
@@ -164,25 +165,51 @@ class _LocalRunHandle(RunHandle):
         return None if self._proc is None else str(self._proc.pid)
 
     def status(self) -> RunStatus:
-        if self._proc is None:
-            return RunStatus.QUEUED if not self._cancel_requested else RunStatus.CANCELLED
-        rc = self._proc.poll()
-        if rc is None:
-            return RunStatus.RUNNING
-        if self._timed_out:
-            return RunStatus.TIMED_OUT
-        if self._cancel_requested:
-            return RunStatus.CANCELLED
-        return RunStatus.SUCCEEDED if rc == 0 else RunStatus.FAILED
+        # If we have a live subprocess, prefer that as the source of truth.
+        if self._proc is not None:
+            rc = self._proc.poll()
+            if rc is None:
+                return RunStatus.RUNNING
+            if self._timed_out:
+                return RunStatus.TIMED_OUT
+            if self._cancel_requested:
+                return RunStatus.CANCELLED
+            return RunStatus.SUCCEEDED if rc == 0 else RunStatus.FAILED
+
+        # Passive/attached handle fallback: read run.json if available.
+        try:
+            path = runstate_path(self._run_dir)
+            doc = _json_load(path) or {}
+            state_raw = doc.get("state")
+            if state_raw is None:
+                # Unknown → assume queued unless a cancel was requested.
+                return RunStatus.CANCELLED if self._cancel_requested else RunStatus.QUEUED
+            return RunStatus(state_raw)
+        except Exception:
+            # On any error, be conservative.
+            return RunStatus.CANCELLED if self._cancel_requested else RunStatus.QUEUED
 
     def wait(self, timeout_s: float | None = None) -> RunStatus:
-        # Wait until terminal; works for queued or running.
-        if timeout_s is None:
-            self._finished_evt.wait()
-        else:
-            if not self._finished_evt.wait(timeout_s):
-                return self.status()
-        return self.status()
+        # If we're managing a subprocess, we can use the event (set by the monitor)
+        # which will be triggered when the process exits or the run transitions terminal.
+        if self._proc is not None:
+            if timeout_s is None:
+                self._finished_evt.wait()
+            else:
+                if not self._finished_evt.wait(timeout_s):
+                    return self.status()
+            return self.status()
+
+        # Passive/attached handle: poll run.json until we observe a terminal state.
+        # Keep this simple and conservative (no background threads).
+        end = None if timeout_s is None else (time.monotonic() + max(0.0, float(timeout_s)))
+        while True:
+            st = self.status()
+            if st in TERMINAL_STATES:
+                return st
+            if end is not None and time.monotonic() >= end:
+                return st
+            time.sleep(0.2)
 
     def cancel(self, force: bool = False, reason: str | None = None) -> None:
         """
@@ -420,9 +447,67 @@ class LocalRunner(Runner):
         return handle
 
     def attach(self, run: RunMaterialized) -> RunHandle | None:
-        _ = run
-        # Later: read run.json, reconstruct handle using pid & watch again.
-        return None
+        """Best-effort attach to an existing local run.
+
+        Rules (initial implementation):
+        - Only attach to runs that were created by *this* runner name.
+        - We do not reconstruct the in-memory queue; queued runs are not attachable.
+        - For running or finished runs, we return a passive handle that reads
+          ``_tl/run.json`` for status and exposes stdout/stderr paths.
+        - We *do not* re-parent or track the OS process in the monitor thread yet.
+          (No reliable cross-process ``Popen`` attach exists in the stdlib.)
+        """
+        run_dir: Path = run.run_dir.path
+        run_id = str(getattr(run, "run_id", None) or run_dir.name)
+
+        # Read run.json (if missing or malformed, we can't attach)
+        state_path = runstate_path(run_dir)
+        doc = _json_load(state_path)
+        if not doc:
+            return None
+
+        # Must be the same runner name that wrote the state, otherwise bail.
+        runner_name = doc.get("runner")
+        if runner_name and str(runner_name) != self.name:
+            return None
+
+        # Determine stdout/stderr paths from saved spec, else fall back to defaults.
+        try:
+            ls = doc.get("launch_spec") or {}
+        except Exception:
+            ls = {}
+        stdout_p = Path(ls.get("stdout_path") or default_stdout_path(run_dir))
+        stderr_p = Path(ls.get("stderr_path") or default_stderr_path(run_dir))
+
+        # Construct a passive handle (no subprocess attached).
+        handle = _LocalRunHandle(self, run_id, run_dir, None, stdout_p, stderr_p)
+
+        # If the run is already terminal, mark events so wait() returns promptly.
+        st = doc.get("state")
+        st = RunStatus(st) if st is not None else RunStatus.QUEUED
+
+        if st in TERMINAL_STATES:
+            handle._started_evt.set()
+            handle._finished_evt.set()
+        elif st is RunStatus.RUNNING:
+            # Best-effort: mark started so client code can distinguish from queued.
+            handle._started_evt.set()
+        # QUEUED → leave both events unset.
+
+        # Optionally verify the PID is alive for RUNNING; purely informational.
+        # We don't currently adopt the process into the monitor thread.
+        if st is RunStatus.RUNNING:
+            pid_s = doc.get("external_id")
+            try:
+                pid = int(pid_s) if pid_s is not None else None
+            except Exception:
+                pid = None
+            if pid is not None and not self._pid_alive(pid):
+                # Process seems gone but run.json wasn't finalized. We leave it as-is
+                # (conservative) and let a future orchestrator/repair step decide.
+                pass
+
+        return handle
 
     def close(self) -> None:
         """Stop the monitor thread. We don't mutate per-run state here."""
@@ -518,6 +603,26 @@ class LocalRunner(Runner):
                 lock = threading.Lock()
                 self._locks[run_dir] = lock
             return lock
+
+    @staticmethod
+    def _pid_alive(pid: int) -> bool:
+        """Best-effort check whether a PID is alive on this host.
+
+        POSIX: uses os.kill(pid, 0).
+        Windows: os.kill(pid, 0) often raises PermissionError for foreign-session processes;
+        we treat PermissionError as "probably alive".
+        """
+        try:
+            os.kill(pid, 0)
+            return True
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        except Exception:
+            # Unknown → assume alive to avoid false negatives.
+            return True
+
 
     def _has_capacity_locked(self) -> bool:
         if self._max_parallel is None:
