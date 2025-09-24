@@ -130,6 +130,17 @@ def _append_event(run_dir: Path, lock: threading.Lock, *, state: str, reason: st
         doc["events"] = ev
         _json_atomic_write(path, doc)
 
+def _resolve_max_parallel(setting: int | Literal["auto", "unbounded"]) -> int | None:
+    if setting == "auto":
+        n = os.cpu_count() or 1
+        return max(1, n - 1)  # leave a core free
+    elif setting == "unbounded":
+        return None  # no cap
+    elif setting <= 0:
+        raise ValueError("max_parallel must be > 0, or 'auto'/'unbounded'")
+
+    return setting
+
 
 # -----------------------------------------------------------------------------
 # RunHandle impl (monitor updates the metadata; handle supports QUEUED state)
@@ -236,19 +247,19 @@ class _RunRecord:
     handle: _LocalRunHandle
     stdout_path: Path
     stderr_path: Path
-    deadline_monotonic: Optional[float]  # None => no timeout
     lock: threading.Lock                 # serialize run.json access for THIS run
+    deadline_monotonic: Optional[float]  # None => no timeout
 
 @dataclass
 class _PendingItem:
     """A run that is materialized, validated, and queued but not yet started."""
     run_id: str
     run_dir: Path
-    spec: LaunchSpec
+    handle: _LocalRunHandle
     stdout_path: Path
     stderr_path: Path
     lock: threading.Lock
-    handle: _LocalRunHandle
+    spec: LaunchSpec
 
 class LocalRunner(Runner):
     """
@@ -274,7 +285,7 @@ class LocalRunner(Runner):
         self._launch_factory: LaunchSpecFactory = ensure_launch_factory(launch)
 
         # Concurrency limit
-        self._max_parallel = self._resolve_max_parallel(max_parallel)
+        self._max_parallel = _resolve_max_parallel(max_parallel)
 
         # Active run registry (run_dir -> record)
         self._active: dict[Path, _RunRecord] = {}
@@ -329,7 +340,6 @@ class LocalRunner(Runner):
         Create (or enqueue) a run, write 'queued' state, maybe spawn immediately,
         and return a handle (which may be queued or running).
         """
-        # run.run_dir may be an AbsDir in this codebase; use .path
         run_dir: Path = run.run_dir.path
         run_id = str(getattr(run, "run_id", None) or run_dir.name)
 
@@ -380,7 +390,7 @@ class LocalRunner(Runner):
                 "runner": self.name,
                 "run_id": run_id,
                 "attempt": attempt,
-                "state": RunStatus.QUEUED.value,
+                "state": RunStatus.QUEUED,
                 "submitted_at": queued_at,
                 "started_at": None,
                 "finished_at": None,
@@ -390,7 +400,7 @@ class LocalRunner(Runner):
                 "events": [],
             }
             _json_atomic_write(state_path, payload)
-            _append_event(run_dir, lock, state=RunStatus.QUEUED.value, reason="submit")
+            _append_event(run_dir, lock, state=RunStatus.QUEUED, reason="submit")
 
         # Construct handle
         handle = _LocalRunHandle(self, run_id, run_dir, None, stdout_p, stderr_p)
@@ -416,11 +426,11 @@ class LocalRunner(Runner):
                     with lock:
                         path = runstate_path(run_dir)
                         doc = _json_load(path) or {}
-                        doc["state"] = RunStatus.FAILED.value
+                        doc["state"] = RunStatus.FAILED
                         doc["finished_at"] = _now_iso()
                         doc["return_code"] = None
                         _json_atomic_write(path, doc)
-                        _append_event(run_dir, lock, state=RunStatus.FAILED.value, reason=f"spawn failed: {exc!s}")
+                        _append_event(run_dir, lock, state=RunStatus.FAILED, reason=f"spawn failed: {exc!s}")
                     raise
             else:
                 # No capacity → enqueue
@@ -458,11 +468,11 @@ class LocalRunner(Runner):
         with item.lock:
             path = runstate_path(run_dir)
             doc = _json_load(path) or {}
-            doc["state"] = RunStatus.CANCELLED.value
+            doc["state"] = RunStatus.CANCELLED
             doc["finished_at"] = _now_iso()
             doc["return_code"] = None
             _json_atomic_write(path, doc)
-            _append_event(run_dir, item.lock, state=RunStatus.CANCELLED.value, reason="cancelled while queued")
+            _append_event(run_dir, item.lock, state=RunStatus.CANCELLED, reason="cancelled while queued")
         handle._finished_evt.set()
 
     # ---- internal: lock registry --------------------------------------------
@@ -478,43 +488,6 @@ class LocalRunner(Runner):
                 lock = threading.Lock()
                 self._locks[run_dir] = lock
             return lock
-
-    # ---- internal: capacity helpers -----------------------------------------
-
-    @staticmethod
-    def _detect_cpus() -> int:
-        try:
-            return len(os.sched_getaffinity(0))  # Linux; respects cgroups/affinity
-        except Exception:
-            return os.cpu_count() or 1
-
-    def _resolve_max_parallel(self, setting: int | Literal["auto", "unbounded"]) -> Optional[int]:
-        # Env override takes precedence if provided
-        env = os.getenv("TASKLATTICE_LOCAL_MAX_PARALLEL")
-        if env is not None:
-            env = env.strip().lower()
-            if env == "unbounded":
-                return None
-            if env == "auto":
-                setting = "auto"
-            else:
-                try:
-                    v = int(env)
-                    if v <= 0:
-                        raise ValueError
-                    return v
-                except Exception:
-                    warnings.warn(f"Invalid TASKLATTICE_LOCAL_MAX_PARALLEL='{env}', falling back to setting.", stacklevel=2)
-
-        if isinstance(setting, int):
-            if setting <= 0:
-                raise ValueError("max_parallel must be > 0, 'auto', or 'unbounded'")
-            return setting
-        if setting == "unbounded":
-            return None
-        # auto: leave one core free
-        n = self._detect_cpus()
-        return max(1, n - 1)
 
     def _has_capacity_locked(self) -> bool:
         if self._max_parallel is None:
@@ -547,7 +520,7 @@ class LocalRunner(Runner):
                 if rec.deadline_monotonic is not None and proc.poll() is None and now >= rec.deadline_monotonic:
                     rec.handle._timed_out = True
                     self._signal_timeout(proc)
-                    _append_event(run_dir, rec.lock, state=RunStatus.TIMED_OUT.value, reason="timeout")
+                    _append_event(run_dir, rec.lock, state=RunStatus.TIMED_OUT, reason="timeout")
                     rec.deadline_monotonic = None  # prevent repeated signaling
 
                 # Finalization on process exit
@@ -555,11 +528,11 @@ class LocalRunner(Runner):
                 if rc is not None:
                     finished_at = _now_iso()
                     if rec.handle._timed_out:
-                        final_state = RunStatus.TIMED_OUT.value
+                        final_state = RunStatus.TIMED_OUT
                     elif rec.handle._cancel_requested:
-                        final_state = RunStatus.CANCELLED.value
+                        final_state = RunStatus.CANCELLED
                     else:
-                        final_state = RunStatus.SUCCEEDED.value if rc == 0 else RunStatus.FAILED.value
+                        final_state = RunStatus.SUCCEEDED if rc == 0 else RunStatus.FAILED
 
                     with rec.lock:
                         path = runstate_path(run_dir)
@@ -595,11 +568,11 @@ class LocalRunner(Runner):
                         with item.lock:
                             path = runstate_path(item.run_dir)
                             doc = _json_load(path) or {}
-                            doc["state"] = RunStatus.FAILED.value
+                            doc["state"] = RunStatus.FAILED
                             doc["finished_at"] = _now_iso()
                             doc["return_code"] = None
                             _json_atomic_write(path, doc)
-                            _append_event(item.run_dir, item.lock, state=RunStatus.FAILED.value, reason=f"spawn failed: {exc!s}")
+                            _append_event(item.run_dir, item.lock, state=RunStatus.FAILED, reason=f"spawn failed: {exc!s}")
                         item.handle._finished_evt.set()
                         # don't re-raise from monitor loop
 
@@ -628,6 +601,7 @@ class LocalRunner(Runner):
         popen_kwargs: dict[str, Any] = {}
         if os.name == "posix":
             popen_kwargs["preexec_fn"] = os.setsid
+            popen_kwargs["start_new_session"] = True
         elif os.name == "nt":
             popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
 
@@ -649,11 +623,11 @@ class LocalRunner(Runner):
             started_at = _now_iso()
             path = runstate_path(run_dir)
             doc = _json_load(path) or {}
-            doc["state"] = RunStatus.RUNNING.value
+            doc["state"] = RunStatus.RUNNING
             doc["started_at"] = started_at
             doc["external_id"] = str(proc.pid)
             _json_atomic_write(path, doc)
-            _append_event(run_dir, lock, state=RunStatus.RUNNING.value, reason=f"spawned pid {proc.pid}")
+            _append_event(run_dir, lock, state=RunStatus.RUNNING, reason=f"spawned pid {proc.pid}")
 
         # Update handle & register
         item.handle._proc = proc
@@ -701,10 +675,17 @@ class LocalRunner(Runner):
                     except Exception:
                         pass
         else:
+            # try a soft break first, works if console + new process group
+            try:
+                proc.send_signal(signal.CTRL_BREAK_EVENT) # type: ignore[attr-defined]
+            except Exception:
+                pass
+
             try:
                 proc.terminate()
             except Exception:
                 pass
+
             try:
                 proc.wait(timeout=5)
             except subprocess.TimeoutExpired:

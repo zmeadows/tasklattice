@@ -18,11 +18,10 @@ import shlex
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Callable, Mapping, Protocol, Sequence, Union, runtime_checkable
+from typing import Callable, Mapping, Protocol, Sequence, TypeAlias, runtime_checkable
 
 # One-way dependency: runners -> materialize
 from tasklattice.materialize import RunMaterialized
-
 
 # -----------------------------------------------------------------------------
 # Lifecycle model
@@ -36,9 +35,9 @@ class RunStatus(StrEnum):
     CANCELLED = "cancelled"
     TIMED_OUT = "timed_out"
 
-TERMINAL_STATES: set[RunStatus] = {
+TERMINAL_STATES: frozenset[RunStatus] = frozenset({
     RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.TIMED_OUT
-}
+})
 
 
 # -----------------------------------------------------------------------------
@@ -79,8 +78,8 @@ class LaunchSpec:
 # Launch factory normalization
 # -----------------------------------------------------------------------------
 
-LaunchSpecFactory = Callable[[RunMaterialized], LaunchSpec]
-UserLaunchInput = Union[LaunchSpec, LaunchSpecFactory, str, Sequence[str]]
+LaunchSpecFactory: TypeAlias = Callable[[RunMaterialized], LaunchSpec]
+UserLaunchInput: TypeAlias = LaunchSpec | LaunchSpecFactory | str | Sequence[str]
 
 def _cmd_from_string(s: str) -> list[str]:
     """Split a shell-style command string into argv using POSIX rules."""
@@ -138,6 +137,18 @@ def validate_spec_common(spec: LaunchSpec, *, run_dir: Path) -> None:
     # cmd
     if not spec.cmd or any(not isinstance(c, str) for c in spec.cmd):
         raise ValueError("LaunchSpec.cmd must be a non-empty sequence of strings")
+
+    # ncpus
+    if spec.resources.cpus is not None and spec.resources.cpus <= 0:
+        raise ValueError("Resources.cpus must be a positive integer (or None)")
+
+    # ngpus
+    if spec.resources.gpus is not None and spec.resources.gpus <= 0:
+        raise ValueError("Resources.gpus must be a positive integer (or None)")
+
+    # mem
+    if spec.resources.mem_mb is not None and spec.resources.mem_mb <= 0:
+        raise ValueError("Resources.mem_mb must positive (or None)")
 
     # timeout
     if spec.resources.time_limit_s is not None and spec.resources.time_limit_s <= 0:
