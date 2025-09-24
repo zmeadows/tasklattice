@@ -11,10 +11,11 @@ Design recap
     * computes effective LaunchSpec (cwd relative/None → resolved under run_dir),
     * validates (common + backend),
     * writes `_tl/run.json` (queued → running),
-    * spawns subprocess with fresh logs,
-    * registers run in a central registry watched by ONE monitor thread.
-- Monitor thread:
+    * EITHER spawns immediately (if capacity allows) OR enqueues,
+    * returns a RunHandle that may be in QUEUED state.
+- Single monitor thread:
     * polls all active runs,
+    * dispatches queued runs when capacity frees up,
     * enforces Resources.time_limit_s (TERM then KILL with grace),
     * writes timeout events and final terminal state to `_tl/run.json`,
     * removes finished runs and cleans per-run locks.
@@ -32,10 +33,11 @@ import subprocess
 import threading
 import time
 import warnings
-from dataclasses import dataclass
+from collections import deque
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, cast
+from typing import Any, Deque, Literal, Optional, cast
 
 from tasklattice.constants import (
     RUNSTATE_SCHEMA,
@@ -130,50 +132,61 @@ def _append_event(run_dir: Path, lock: threading.Lock, *, state: str, reason: st
 
 
 # -----------------------------------------------------------------------------
-# RunHandle impl (thin; monitor decides final metadata)
+# RunHandle impl (monitor updates the metadata; handle supports QUEUED state)
 # -----------------------------------------------------------------------------
 
 @dataclass
 class _LocalRunHandle(RunHandle):
+    _runner: "LocalRunner"
     _run_id: str
-    _proc: subprocess.Popen[bytes]
-    _stdout: Path
-    _stderr: Path
+    _run_dir: Path
+    _proc: Optional[subprocess.Popen[bytes]] = None
+    _stdout: Path | None = None
+    _stderr: Path | None = None
     _cancel_requested: bool = False
     _timed_out: bool = False
+    _started_evt: threading.Event = field(default_factory=threading.Event)
+    _finished_evt: threading.Event = field(default_factory=threading.Event)
 
     def run_id(self) -> str: return self._run_id
-    def external_id(self) -> str | None: return str(self._proc.pid)
+    def external_id(self) -> str | None:
+        return None if self._proc is None else str(self._proc.pid)
 
     def status(self) -> RunStatus:
+        if self._proc is None:
+            return RunStatus.QUEUED if not self._cancel_requested else RunStatus.CANCELLED
         rc = self._proc.poll()
-
         if rc is None:
             return RunStatus.RUNNING
-
         if self._timed_out:
             return RunStatus.TIMED_OUT
-
         if self._cancel_requested:
             return RunStatus.CANCELLED
-
         return RunStatus.SUCCEEDED if rc == 0 else RunStatus.FAILED
 
     def wait(self, timeout_s: float | None = None) -> RunStatus:
-        try:
-            self._proc.wait(timeout=timeout_s)
-        except subprocess.TimeoutExpired:
-            return RunStatus.RUNNING
+        # Wait until terminal; works for queued or running.
+        if timeout_s is None:
+            self._finished_evt.wait()
+        else:
+            if not self._finished_evt.wait(timeout_s):
+                return self.status()
         return self.status()
 
     def cancel(self, force: bool = False, reason: str | None = None) -> None:
         """
-        Best-effort cancellation of the process group (POSIX) or process (Windows).
-        The monitor will notice _cancel_requested and report CANCELLED on exit.
+        Best-effort cancellation for queued or running runs.
+        - If queued: remove from runner queue and mark CANCELLED.
+        - If running: signal process group (POSIX) or process (Windows).
         """
         _ = reason
-
         self._cancel_requested = True
+        if self._proc is None:
+            # queued → ask runner to cancel from queue
+            self._runner._cancel_queued(self._run_dir, handle=self)
+            return
+
+        # running → terminate process
         if os.name == "posix":
             try:
                 os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
@@ -204,20 +217,20 @@ class _LocalRunHandle(RunHandle):
                 except Exception:
                     pass
 
-    def return_code(self) -> int | None: return self._proc.returncode
+    def return_code(self) -> int | None:
+        return None if self._proc is None else self._proc.returncode
+
     def stdout_path(self) -> Path | None: return self._stdout
     def stderr_path(self) -> Path | None: return self._stderr
 
 
 # -----------------------------------------------------------------------------
-# LocalRunner monitor & record
+# LocalRunner monitor, records, and queue
 # -----------------------------------------------------------------------------
 
 @dataclass
 class _RunRecord:
-    """
-    Internal record the monitor uses to manage a single active run.
-    """
+    """Internal record the monitor uses to manage a single active run."""
     run_id: str
     run_dir: Path
     handle: _LocalRunHandle
@@ -226,22 +239,51 @@ class _RunRecord:
     deadline_monotonic: Optional[float]  # None => no timeout
     lock: threading.Lock                 # serialize run.json access for THIS run
 
+@dataclass
+class _PendingItem:
+    """A run that is materialized, validated, and queued but not yet started."""
+    run_id: str
+    run_dir: Path
+    spec: LaunchSpec
+    stdout_path: Path
+    stderr_path: Path
+    lock: threading.Lock
+    handle: _LocalRunHandle
+
 class LocalRunner(Runner):
     """
-    Execute a RunMaterialized via a local subprocess.
+    Execute a RunMaterialized via a local subprocess, with optional concurrency cap.
+
+    Args:
+        launch: UserLaunchInput for how to start each run.
+        max_parallel: "auto" (default) caps to max(1, cpu_count-1), "unbounded" removes the cap,
+                      or a positive integer for a fixed cap.
+        name: Runner name for metadata.
     """
 
     name: str
 
-    def __init__(self, launch: UserLaunchInput, name: str = "local") -> None:
+    def __init__(
+        self,
+        launch: UserLaunchInput,
+        *,
+        max_parallel: int | Literal["auto", "unbounded"] = "auto",
+        name: str = "local",
+    ) -> None:
         self.name = name
         self._launch_factory: LaunchSpecFactory = ensure_launch_factory(launch)
 
+        # Concurrency limit
+        self._max_parallel = self._resolve_max_parallel(max_parallel)
+
         # Active run registry (run_dir -> record)
         self._active: dict[Path, _RunRecord] = {}
+        # Pending FIFO queue (run_dir order preserved)
+        self._pending: Deque[_PendingItem] = deque()
+        # Single runner-level lock for both active and pending (keeps ordering stable)
         self._active_lock = threading.Lock()
 
-        # Per-run locks (by run_dir)
+        # Per-run locks (by run_dir) for run.json
         self._locks: dict[Path, threading.Lock] = {}
         self._locks_lock = threading.Lock()
 
@@ -284,18 +326,17 @@ class LocalRunner(Runner):
 
     def submit(self, run: RunMaterialized) -> RunHandle:
         """
-        Start the process, update run.json to queued→running, register the run
-        with the monitor for timeouts & finalization, and return a handle.
+        Create (or enqueue) a run, write 'queued' state, maybe spawn immediately,
+        and return a handle (which may be queued or running).
         """
+        # run.run_dir may be an AbsDir in this codebase; use .path
         run_dir: Path = run.run_dir.path
         run_id = str(getattr(run, "run_id", None) or run_dir.name)
 
         # Compute effective spec and normalize defaults.
         base_spec = self.effective_spec(run)
 
-        # Enforce cwd policy (spec.cwd is None or RELATIVE). Resolve to absolute for Popen.
-        cwd_abs = run_dir if base_spec.cwd is None else (run_dir / base_spec.cwd)
-
+        # Enforce cwd policy (spec.cwd is None or RELATIVE). Resolve absolute later at spawn.
         stdout_p = base_spec.stdout_path or default_stdout_path(run_dir)
         stderr_p = base_spec.stderr_path or default_stderr_path(run_dir)
         meta_dir(run_dir).mkdir(parents=True, exist_ok=True)
@@ -351,70 +392,39 @@ class LocalRunner(Runner):
             _json_atomic_write(state_path, payload)
             _append_event(run_dir, lock, state=RunStatus.QUEUED.value, reason="submit")
 
-        # Spawn the subprocess (outside the lock to avoid holding it too long)
-        env = os.environ.copy()
-        if effective_spec.env:
-            env.update(effective_spec.env)
-        popen_kwargs: dict[str, Any] = {}
-        if os.name == "posix":
-            popen_kwargs["preexec_fn"] = os.setsid
-        elif os.name == "nt":
-            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
-        try:
-            proc = subprocess.Popen(
-                list(effective_spec.cmd),
-                cwd=str(cwd_abs),
-                env=env,
-                stdout=open(stdout_p, "ab", buffering=0),
-                stderr=open(stderr_p, "ab", buffering=0),
-                text=False,          # <-- explicit
-                encoding=None,       # <-- explicit
-                errors=None,         # <-- explicit
-                **popen_kwargs,
-            )
+        # Construct handle
+        handle = _LocalRunHandle(self, run_id, run_dir, None, stdout_p, stderr_p)
 
-            proc = cast(subprocess.Popen[bytes], proc)
-        except Exception as exc:
-            # Mark FAILED with finished_at and a spawn event, then re-raise.
-            with lock:
-                path = runstate_path(run_dir)
-                doc = _json_load(path) or {}
-                doc["state"] = RunStatus.FAILED.value
-                doc["finished_at"] = _now_iso()
-                doc["return_code"] = None
-                _json_atomic_write(path, doc)
-                _append_event(run_dir, lock, state=RunStatus.FAILED.value, reason=f"spawn failed: {exc!s}")
-            raise
-
-        # Mark running (under the lock again)
-        with lock:
-            started_at = _now_iso()
-            path = runstate_path(run_dir)
-            doc = _json_load(path) or {}
-            doc["state"] = RunStatus.RUNNING.value
-            doc["started_at"] = started_at
-            doc["external_id"] = str(proc.pid)
-            _json_atomic_write(path, doc)
-            _append_event(run_dir, lock, state=RunStatus.RUNNING.value, reason=f"spawned pid {proc.pid}")
-
-        # Create handle & register with monitor
-        handle = _LocalRunHandle(run_id, proc, stdout_p, stderr_p)
-        deadline: Optional[float] = None
-        tl = effective_spec.resources.time_limit_s
-        if tl is not None and tl > 0:
-            deadline = time.monotonic() + float(tl)
-
-        rec = _RunRecord(
+        # Try to start immediately if capacity allows; otherwise enqueue.
+        pending = _PendingItem(
             run_id=run_id,
             run_dir=run_dir,
-            handle=handle,
+            spec=effective_spec,
             stdout_path=stdout_p,
             stderr_path=stderr_p,
-            deadline_monotonic=deadline,
             lock=lock,
+            handle=handle,
         )
+
         with self._active_lock:
-            self._active[run_dir] = rec
+            if self._has_capacity_locked():
+                # spawn now (inside the same lock to keep capacity consistent)
+                try:
+                    self._spawn_from_pending_locked(pending)
+                except Exception as exc:
+                    # Mark FAILED with finished_at and a spawn event, then re-raise.
+                    with lock:
+                        path = runstate_path(run_dir)
+                        doc = _json_load(path) or {}
+                        doc["state"] = RunStatus.FAILED.value
+                        doc["finished_at"] = _now_iso()
+                        doc["return_code"] = None
+                        _json_atomic_write(path, doc)
+                        _append_event(run_dir, lock, state=RunStatus.FAILED.value, reason=f"spawn failed: {exc!s}")
+                    raise
+            else:
+                # No capacity → enqueue
+                self._pending.append(pending)
 
         return handle
 
@@ -424,11 +434,36 @@ class LocalRunner(Runner):
         return None
 
     def close(self) -> None:
-        """
-        Stop the monitor thread. We don't mutate per-run state here.
-        """
+        """Stop the monitor thread. We don't mutate per-run state here."""
         self._stop_event.set()
         self._monitor_thread.join(timeout=2.0)
+
+    # ---- internal: cancellation for queued runs ------------------------------
+
+    def _cancel_queued(self, run_dir: Path, *, handle: _LocalRunHandle) -> None:
+        with self._active_lock:
+            # Remove from pending if present
+            idx = None
+            for i, item in enumerate(self._pending):
+                if item.run_dir == run_dir:
+                    idx = i
+                    break
+            if idx is None:
+                # It might have just started; nothing to do here — the running cancel path will handle it.
+                return
+            item = self._pending[idx]
+            del self._pending[idx]
+
+        # Mark cancelled in run.json
+        with item.lock:
+            path = runstate_path(run_dir)
+            doc = _json_load(path) or {}
+            doc["state"] = RunStatus.CANCELLED.value
+            doc["finished_at"] = _now_iso()
+            doc["return_code"] = None
+            _json_atomic_write(path, doc)
+            _append_event(run_dir, item.lock, state=RunStatus.CANCELLED.value, reason="cancelled while queued")
+        handle._finished_evt.set()
 
     # ---- internal: lock registry --------------------------------------------
 
@@ -444,15 +479,58 @@ class LocalRunner(Runner):
                 self._locks[run_dir] = lock
             return lock
 
+    # ---- internal: capacity helpers -----------------------------------------
+
+    @staticmethod
+    def _detect_cpus() -> int:
+        try:
+            return len(os.sched_getaffinity(0))  # Linux; respects cgroups/affinity
+        except Exception:
+            return os.cpu_count() or 1
+
+    def _resolve_max_parallel(self, setting: int | Literal["auto", "unbounded"]) -> Optional[int]:
+        # Env override takes precedence if provided
+        env = os.getenv("TASKLATTICE_LOCAL_MAX_PARALLEL")
+        if env is not None:
+            env = env.strip().lower()
+            if env == "unbounded":
+                return None
+            if env == "auto":
+                setting = "auto"
+            else:
+                try:
+                    v = int(env)
+                    if v <= 0:
+                        raise ValueError
+                    return v
+                except Exception:
+                    warnings.warn(f"Invalid TASKLATTICE_LOCAL_MAX_PARALLEL='{env}', falling back to setting.", stacklevel=2)
+
+        if isinstance(setting, int):
+            if setting <= 0:
+                raise ValueError("max_parallel must be > 0, 'auto', or 'unbounded'")
+            return setting
+        if setting == "unbounded":
+            return None
+        # auto: leave one core free
+        n = self._detect_cpus()
+        return max(1, n - 1)
+
+    def _has_capacity_locked(self) -> bool:
+        if self._max_parallel is None:
+            return True  # unbounded
+        return len(self._active) < self._max_parallel
+
     # ---- internal: monitor thread -------------------------------------------
 
     def _monitor_loop(self) -> None:
         """
-        Poll all active runs, enforce timeouts, and finalize metadata when
-        processes exit. All writes to run.json after spawn happen here,
-        under each run's lock, so there are no write races.
+        Poll all active runs, enforce timeouts, finalize metadata when processes exit,
+        and dispatch queued runs when capacity frees up. All writes to run.json after
+        spawn happen here under each run's lock to avoid races.
         """
         while not self._stop_event.is_set():
+            # 1) Finalize finished runs and enforce timeouts
             with self._active_lock:
                 items = list(self._active.items())
 
@@ -461,6 +539,9 @@ class LocalRunner(Runner):
 
             for run_dir, rec in items:
                 proc = rec.handle._proc
+                if proc is None:
+                    # shouldn't happen for active records
+                    continue
 
                 # Enforce wall-clock timeout
                 if rec.deadline_monotonic is not None and proc.poll() is None and now >= rec.deadline_monotonic:
@@ -491,6 +572,7 @@ class LocalRunner(Runner):
                         _json_atomic_write(path, doc)
                         _append_event(run_dir, rec.lock, state=final_state, reason="process exited")
 
+                    rec.handle._finished_evt.set()
                     to_remove.append(run_dir)
 
             if to_remove:
@@ -502,7 +584,98 @@ class LocalRunner(Runner):
                     for rd in to_remove:
                         self._locks.pop(rd, None)
 
+            # 2) Dispatch from pending queue if capacity allows
+            with self._active_lock:
+                while self._has_capacity_locked() and self._pending:
+                    item = self._pending.popleft()
+                    try:
+                        self._spawn_from_pending_locked(item)
+                    except Exception as exc:
+                        # Mark FAILED and continue to next pending
+                        with item.lock:
+                            path = runstate_path(item.run_dir)
+                            doc = _json_load(path) or {}
+                            doc["state"] = RunStatus.FAILED.value
+                            doc["finished_at"] = _now_iso()
+                            doc["return_code"] = None
+                            _json_atomic_write(path, doc)
+                            _append_event(item.run_dir, item.lock, state=RunStatus.FAILED.value, reason=f"spawn failed: {exc!s}")
+                        item.handle._finished_evt.set()
+                        # don't re-raise from monitor loop
+
             time.sleep(0.25)
+
+    # ---- internal: spawn helper ---------------------------------------------
+
+    def _spawn_from_pending_locked(self, item: _PendingItem) -> None:
+        """
+        Spawn a queued run NOW (caller must hold _active_lock). On success,
+        writes 'running', registers into _active, and updates the handle.
+        On failure, raises; caller is responsible for marking FAILED state.
+        """
+        run_dir = item.run_dir
+        spec = item.spec
+        lock = item.lock
+
+        # Compute absolute cwd under run_dir
+        cwd_abs = run_dir if spec.cwd is None else (run_dir / spec.cwd)
+
+        # Prepare environment
+        env = os.environ.copy()
+        if spec.env:
+            env.update(spec.env)
+
+        popen_kwargs: dict[str, Any] = {}
+        if os.name == "posix":
+            popen_kwargs["preexec_fn"] = os.setsid
+        elif os.name == "nt":
+            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+
+        proc = subprocess.Popen(
+            list(spec.cmd),
+            cwd=str(cwd_abs),
+            env=env,
+            stdout=open(item.stdout_path, "ab", buffering=0),
+            stderr=open(item.stderr_path, "ab", buffering=0),
+            text=False,
+            encoding=None,
+            errors=None,
+            **popen_kwargs,
+        )
+        proc = cast(subprocess.Popen[bytes], proc)
+
+        # Mark running
+        with lock:
+            started_at = _now_iso()
+            path = runstate_path(run_dir)
+            doc = _json_load(path) or {}
+            doc["state"] = RunStatus.RUNNING.value
+            doc["started_at"] = started_at
+            doc["external_id"] = str(proc.pid)
+            _json_atomic_write(path, doc)
+            _append_event(run_dir, lock, state=RunStatus.RUNNING.value, reason=f"spawned pid {proc.pid}")
+
+        # Update handle & register
+        item.handle._proc = proc
+        item.handle._stdout = item.stdout_path
+        item.handle._stderr = item.stderr_path
+        item.handle._started_evt.set()
+
+        deadline: Optional[float] = None
+        tl = spec.resources.time_limit_s
+        if tl is not None and tl > 0:
+            deadline = time.monotonic() + float(tl)
+
+        rec = _RunRecord(
+            run_id=item.run_id,
+            run_dir=run_dir,
+            handle=item.handle,
+            stdout_path=item.stdout_path,
+            stderr_path=item.stderr_path,
+            deadline_monotonic=deadline,
+            lock=lock,
+        )
+        self._active[run_dir] = rec
 
     @staticmethod
     def _signal_timeout(proc: subprocess.Popen[bytes]) -> None:
@@ -539,4 +712,3 @@ class LocalRunner(Runner):
                     proc.kill()
                 except Exception:
                     pass
-

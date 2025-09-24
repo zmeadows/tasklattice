@@ -1,4 +1,3 @@
-# tasklattice/materialize.py
 from __future__ import annotations
 
 import fnmatch
@@ -205,7 +204,7 @@ class Materializer:
         # 4) Finalize the staged directory into place (atomic by default)
         self.staging.finalize(tmp_dir, final_dir)
 
-        write_inputs_json(
+        _write_inputs_json(
             final_dir,                         # Path to the run's permanent directory
             params=subs,                       # Mapping[ParamName, ValueLiteral]
             plan_fingerprint=plan_fp,          # str
@@ -261,7 +260,7 @@ def _flatten_subs_for_inputs(subs: Mapping[Any, Any]) -> dict[str, Any]:
     return out
 
 
-def write_inputs_json(run_dir: Path, *, params: Mapping[Any, Any],
+def _write_inputs_json(run_dir: Path, *, params: Mapping[Any, Any],
                       plan_fingerprint: str, subs_fingerprint: str) -> None:
     """
     Write the static materialization metadata for a run (once, post-finalize).
