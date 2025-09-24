@@ -148,7 +148,7 @@ def _resolve_max_parallel(setting: int | Literal["auto", "unbounded"]) -> int | 
 
 @dataclass
 class _LocalRunHandle(RunHandle):
-    _runner: "LocalRunner"
+    _runner: LocalRunner
     _run_id: str
     _run_dir: Path
     _proc: Optional[subprocess.Popen[bytes]] = None
@@ -188,45 +188,19 @@ class _LocalRunHandle(RunHandle):
         """
         Best-effort cancellation for queued or running runs.
         - If queued: remove from runner queue and mark CANCELLED.
-        - If running: signal process group (POSIX) or process (Windows).
+        - If running: signal process group (POSIX) or process (Windows) via runner under lock.
         """
+
         _ = reason
+
         self._cancel_requested = True
         if self._proc is None:
             # queued → ask runner to cancel from queue
             self._runner._cancel_queued(self._run_dir, handle=self)
             return
 
-        # running → terminate process
-        if os.name == "posix":
-            try:
-                os.killpg(os.getpgid(self._proc.pid), signal.SIGTERM)
-            except Exception:
-                try:
-                    self._proc.terminate()
-                except Exception:
-                    pass
-            if force:
-                try:
-                    self._proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    try:
-                        os.killpg(os.getpgid(self._proc.pid), signal.SIGKILL)
-                    except Exception:
-                        try:
-                            self._proc.kill()
-                        except Exception:
-                            pass
-        else:
-            try:
-                self._proc.terminate()
-            except Exception:
-                pass
-            if force:
-                try:
-                    self._proc.kill()
-                except Exception:
-                    pass
+        # running → ask runner to cancel under its lock
+        self._runner._cancel_running(self._run_dir, handle=self, force=force)
 
     def return_code(self) -> int | None:
         return None if self._proc is None else self._proc.returncode
@@ -293,6 +267,9 @@ class LocalRunner(Runner):
         self._pending: Deque[_PendingItem] = deque()
         # Single runner-level lock for both active and pending (keeps ordering stable)
         self._active_lock = threading.Lock()
+
+        # Condition to wake the monitor when queue/active set changes
+        self._cond = threading.Condition(self._active_lock)
 
         # Per-run locks (by run_dir) for run.json
         self._locks: dict[Path, threading.Lock] = {}
@@ -435,6 +412,9 @@ class LocalRunner(Runner):
             else:
                 # No capacity → enqueue
                 self._pending.append(pending)
+            # Wake monitor to reconsider capacity/queue
+            self._cond.notify_all()
+        
 
         return handle
 
@@ -446,9 +426,12 @@ class LocalRunner(Runner):
     def close(self) -> None:
         """Stop the monitor thread. We don't mutate per-run state here."""
         self._stop_event.set()
+        # Wake the monitor so it can exit promptly
+        with self._active_lock:
+            self._cond.notify_all()
         self._monitor_thread.join(timeout=2.0)
 
-    # ---- internal: cancellation for queued runs ------------------------------
+    # ---- internal: cancellation of runs ------------------------------
 
     def _cancel_queued(self, run_dir: Path, *, handle: _LocalRunHandle) -> None:
         with self._active_lock:
@@ -474,6 +457,52 @@ class LocalRunner(Runner):
             _json_atomic_write(path, doc)
             _append_event(run_dir, item.lock, state=RunStatus.CANCELLED, reason="cancelled while queued")
         handle._finished_evt.set()
+        # Drop the per-run lock since the run was never started
+        with self._locks_lock:
+            self._locks.pop(run_dir, None)
+        # Wake monitor in case it was waiting for capacity/queue changes
+        with self._active_lock:
+            self._cond.notify_all()
+
+    def _cancel_running(self, run_dir: Path, *, handle: _LocalRunHandle, force: bool = False) -> None:
+        """Best-effort cancellation for a running process under the runner lock."""
+        with self._active_lock:
+            rec = self._active.get(run_dir)
+            if rec is None or rec.handle._proc is None:
+                # No longer running (finished or race); nothing to do.
+                return
+            handle._cancel_requested = True
+            proc = rec.handle._proc
+            try:
+                if os.name == "posix":
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
+                    except Exception:
+                        try:
+                            proc.terminate()
+                        except Exception:
+                            pass
+                    if force:
+                        try:
+                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                        except Exception:
+                            try:
+                                proc.kill()
+                            except Exception:
+                                pass
+                else:
+                    try:
+                        proc.terminate()
+                    except Exception:
+                        pass
+                    if force:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+            finally:
+                # Wake the monitor so it can notice state changes promptly.
+                self._cond.notify_all()
 
     # ---- internal: lock registry --------------------------------------------
 
@@ -576,9 +605,35 @@ class LocalRunner(Runner):
                         item.handle._finished_evt.set()
                         # don't re-raise from monitor loop
 
-            time.sleep(0.25)
+            # 3) Sleep until something changes or a deadline approaches.
+            # If nothing is active or pending, wait indefinitely for a notification.
+            with self._cond:
+                if self._stop_event.is_set():
+                    return
 
-    # ---- internal: spawn helper ---------------------------------------------
+                # Compute a reasonable timeout: next deadline or a small poll window
+                timeout = None
+
+                # The condition uses the same lock; we already hold it while waiting.
+                if self._active or self._pending:
+                    # Maximum polling interval to observe exits promptly
+                    max_poll = 0.5
+                    timeout = max_poll
+
+                    # If there are deadlines, wake sooner
+                    now2 = time.monotonic()
+                    next_deadline = None
+
+                    for rec2 in self._active.values():
+                        if rec2.deadline_monotonic is not None:
+                            if next_deadline is None or rec2.deadline_monotonic < next_deadline:
+                                next_deadline = rec2.deadline_monotonic
+
+                    if next_deadline is not None:
+                        delta = max(0.0, next_deadline - now2)
+                        timeout = min(timeout, delta)
+
+                self._cond.wait(timeout=timeout)
 
     def _spawn_from_pending_locked(self, item: _PendingItem) -> None:
         """
