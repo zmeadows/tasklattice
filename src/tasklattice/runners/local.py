@@ -151,11 +151,12 @@ def _resolve_max_parallel(setting: int | Literal["auto", "unbounded"]) -> int | 
 
     return setting
 
+_DEFAULT_GRACE_PERIOD = 5.
 
 def _terminate_with_grace(
     proc_or_pid: int | subprocess.Popen[bytes],
     *,
-    grace_s: float = 5.0,
+    grace_s: float | None = _DEFAULT_GRACE_PERIOD,
     force: bool = False,
 ) -> None:
     # If we only have a PID, avoid signaling unless we can prove it's alive now.
@@ -166,6 +167,9 @@ def _terminate_with_grace(
 
     # Soft first
     platform.terminate_tree_by(proc_or_pid, mode="soft")
+
+    if grace_s is None:
+        grace_s = _DEFAULT_GRACE_PERIOD
 
     # Wait for exit (prefer handle-based wait when possible)
     if grace_s > 0:
@@ -278,7 +282,7 @@ class _LocalRunHandle(RunHandle):
                 return st
             time.sleep(0.2)
 
-    def cancel(self, force: bool = False, reason: str | None = None) -> None:
+    def cancel(self, force: bool = False, grace_s: float | None = None, reason: str | None = None) -> None:
         """
         Best-effort cancellation.
         - Queued: remove from runner queue and mark CANCELLED.
@@ -292,14 +296,14 @@ class _LocalRunHandle(RunHandle):
             doc = _json_load(runstate_path(self._run_dir)) or {}
             state = _as_status(doc.get("state"))
             if state == RunStatus.RUNNING:
-                self._runner._cancel_attached(self._run_dir, force=force, handle=self)
+                self._runner._cancel_attached(self._run_dir, handle=self, grace_s=grace_s, force=force)
                 return
             # queued or unknown
             self._runner._cancel_queued(self._run_dir, handle=self)
             return
 
         # Live running
-        self._runner._cancel_running(self._run_dir, handle=self, force=force)
+        self._runner._cancel_running(self._run_dir, handle=self, grace_s=grace_s, force=force)
 
     def return_code(self) -> int | None:
         return None if self._proc is None else self._proc.returncode
@@ -613,7 +617,7 @@ class LocalRunner(Runner):
             _append_event(run_dir, lock, state=state, reason=reason)
 
 
-    def _cancel_attached(self, run_dir: Path, *, force: bool, handle: _LocalRunHandle) -> None:
+    def _cancel_attached(self, run_dir: Path, *, handle: _LocalRunHandle, grace_s: float | None = None, force: bool) -> None:
         """Cancel a RUNNING attached run via PID/PGID and finalize to CANCELLED."""
         lock = self._get_run_lock(run_dir)
         with lock:
@@ -635,7 +639,7 @@ class LocalRunner(Runner):
                 pid = None
     
         if pid is not None:
-            _terminate_with_grace(pid, grace_s=5., force=force)
+            _terminate_with_grace(pid, grace_s=grace_s, force=force)
 
     
         # Regardless of platform/liveness certainty, mark CANCELLED.
@@ -645,6 +649,7 @@ class LocalRunner(Runner):
     # ---- internal: cancellation of runs ------------------------------
 
     def _cancel_queued(self, run_dir: Path, *, handle: _LocalRunHandle) -> None:
+        # TODO: since handle stores run_dir, do we need both run_dir and handle args?
         with self._active_lock:
             # Remove from pending if present
             idx = None
@@ -679,7 +684,7 @@ class LocalRunner(Runner):
             self._cond.notify_all()
 
 
-    def _cancel_running(self, run_dir: Path, *, handle: _LocalRunHandle, force: bool = False) -> None:
+    def _cancel_running(self, run_dir: Path, *, handle: _LocalRunHandle, grace_s: float | None = None, force: bool = False) -> None:
         """Best-effort cancellation for a running process under the runner lock."""
         with self._active_lock:
             rec = self._active.get(run_dir)
@@ -689,7 +694,7 @@ class LocalRunner(Runner):
             handle._cancel_requested = True
             proc = rec.handle._proc
             try:
-                _terminate_with_grace(proc, force=force)
+                _terminate_with_grace(proc, grace_s=grace_s, force=force)
             finally:
                 # Wake the monitor so it can notice state changes promptly.
                 self._cond.notify_all()
