@@ -1,19 +1,21 @@
+from __future__ import annotations
+
+from typing import Any, ClassVar, Literal
 import os
 import signal
 import subprocess
-from typing import Any
 
-from tasklattice.platform.base import PlatformOps
+from .base import PlatformOps, TerminationMode
 
 
 class _Posix(PlatformOps):
-    name = "posix"
+    name: ClassVar[Literal["posix","nt"]] = "posix"
 
     def configure_popen_group(self, popen_kwargs: dict[str, Any]) -> None:
         popen_kwargs["preexec_fn"] = os.setsid
         popen_kwargs["start_new_session"] = True
 
-    def pid_alive(self, pid: int) -> bool: 
+    def pid_alive(self, pid: int) -> bool:
         try:
             os.kill(pid, 0)
             return True
@@ -22,47 +24,42 @@ class _Posix(PlatformOps):
         except PermissionError:
             return True
 
-    def terminate_pid_tree(self, pid: int, *, force: bool) -> None:
+    def _send_group_signal(self, target_pid: int, sig: int) -> bool:
         try:
-            os.killpg(os.getpgid(pid), signal.SIGTERM)
-            if force:
-                os.killpg(os.getpgid(pid), signal.SIGKILL)
+            pgid = os.getpgid(target_pid)
         except Exception:
-            pass
+            pgid = None
 
-    def terminate_process_tree(self, proc: subprocess.Popen[bytes], *, force: bool) -> None:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            if force:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except Exception:
+        sent = False
+        if pgid is not None:
             try:
-                proc.terminate()
+                os.killpg(pgid, sig)
+                sent = True
             except Exception:
                 pass
-            if force:
+
+        if not sent:
+            try:
+                os.kill(target_pid, sig)
+                sent = True
+            except Exception:
+                pass
+
+        return sent
+
+    def terminate_tree_by(self, proc_or_pid: int | subprocess.Popen[Any], mode: TerminationMode) -> None:
+        target_pid = proc_or_pid.pid if isinstance(proc_or_pid, subprocess.Popen) else int(proc_or_pid)
+        sig = signal.SIGTERM if mode == "soft" else signal.SIGKILL
+
+        try:
+            self._send_group_signal(target_pid, sig)
+        except Exception:
+            if isinstance(proc_or_pid, subprocess.Popen):
                 try:
-                    proc.kill()
+                    (proc_or_pid.terminate() if mode == "soft" else proc_or_pid.kill())
                 except Exception:
                     pass
 
-    def soft_terminate(self, proc: subprocess.Popen[bytes]) -> None:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-        except Exception:
-            try:
-                proc.terminate()
-            except Exception:
-                pass
 
-    def hard_kill(self, proc: subprocess.Popen[bytes]) -> None:
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-        except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
-
-platform_impl = _Posix()
+platform_impl: PlatformOps = _Posix()
 

@@ -1,18 +1,21 @@
+from __future__ import annotations
+
 import signal
 import subprocess
-from typing import Any
+from typing import Any, ClassVar, Literal
 
-from tasklattice.platform.base import PlatformOps
+from .base import PlatformOps, TerminationMode
 
 
 class _Win(PlatformOps):
-    name = "nt"
+    name: ClassVar[Literal["posix", "nt"]] = "nt"
 
     def configure_popen_group(self, popen_kwargs: dict[str, Any]) -> None:
-        creation_flag: int = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        popen_kwargs["creationflags"] = creation_flag
+        new_group_flag = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        existing = int(popen_kwargs.get("creationflags", 0))
+        popen_kwargs["creationflags"] = existing | new_group_flag
 
-    def pid_alive(self, pid: int) -> bool:
+    def pid_alive(self, pid: int) -> bool | None:
         try:
             result = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
@@ -21,70 +24,42 @@ class _Win(PlatformOps):
                 check=False,
             )
         except Exception:
-            return True
-        stdout = result.stdout or ""
-        if "No tasks are running" in stdout:
-            return False
-        return str(pid) in stdout
+            return None
 
-    def terminate_pid_tree(self, pid: int, *, force: bool) -> None:
+        out = (result.stdout or "").strip()
+        if not out:
+            return None
+        if "No tasks are running" in out:
+            return False
+        return True if str(pid) in out else None
+
+    def _taskkill(self, pid: int, *, force: bool) -> None:
         try:
             args: list[str] = ["taskkill", "/PID", str(pid), "/T"]
             if force:
                 args.append("/F")
-            subprocess.run(
-                args,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
+            subprocess.run(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
         except Exception:
             pass
 
-    def terminate_process_tree(self, proc: subprocess.Popen[bytes], *, force: bool) -> None:
-        try:
-            proc.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
-        except Exception:
-            try:
-                proc.terminate()
-            except Exception:
-                pass
-        if force:
-            try:
-                subprocess.run(
-                    ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    check=False,
-                )
-            except Exception:
+    def terminate_tree_by(self, proc_or_pid: int | subprocess.Popen[Any], mode: TerminationMode) -> None:
+        if isinstance(proc_or_pid, subprocess.Popen):
+            if mode == "soft":
                 try:
-                    proc.kill()
+                    proc_or_pid.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
+                    return
                 except Exception:
+                    # fall through to taskkill
                     pass
+            pid = proc_or_pid.pid
+        else:
+            pid = int(proc_or_pid)
 
-    def soft_terminate(self, proc: subprocess.Popen[bytes]) -> None:
-        try:
-            proc.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
-        except Exception:
-            try:
-                proc.terminate()
-            except Exception:
-                pass
-
-    def hard_kill(self, proc: subprocess.Popen[bytes]) -> None:
-        try:
-            subprocess.run(
-                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                check=False,
-            )
-        except Exception:
-            try:
-                proc.kill()
-            except Exception:
-                pass
+        if mode == "soft":
+            self._taskkill(pid, force=False)
+        else:
+            self._taskkill(pid, force=True)
 
 
-platform_impl = _Win()
+platform_impl: PlatformOps = _Win()
+

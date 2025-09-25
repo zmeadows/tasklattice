@@ -152,6 +152,40 @@ def _resolve_max_parallel(setting: int | Literal["auto", "unbounded"]) -> int | 
     return setting
 
 
+def _terminate_with_grace(
+    proc_or_pid: int | subprocess.Popen[bytes],
+    *,
+    grace_s: float = 5.0,
+    force: bool = False,
+) -> None:
+    # Soft first
+    platform.terminate_tree_by(proc_or_pid, mode="soft")
+
+    # Wait for exit (prefer handle-based wait when possible)
+    if grace_s > 0:
+        if isinstance(proc_or_pid, subprocess.Popen):
+            try:
+                proc_or_pid.wait(timeout=grace_s)
+                return
+            except Exception:
+                pass
+        else:
+            pid = int(proc_or_pid)
+            deadline = time.monotonic() + grace_s
+            while time.monotonic() < deadline:
+                alive = platform.pid_alive(pid)
+                if alive is False:
+                    return
+                time.sleep(0.1)
+
+    # Hard if still around or caller insists
+    still_alive = (
+        (proc_or_pid.poll() is None) if isinstance(proc_or_pid, subprocess.Popen)
+        else (platform.pid_alive(int(proc_or_pid)) is not False)
+    )
+    if force or still_alive:
+        platform.terminate_tree_by(proc_or_pid, mode="hard")
+
 # -----------------------------------------------------------------------------
 # RunHandle impl (monitor updates the metadata; handle supports QUEUED state)
 # -----------------------------------------------------------------------------
@@ -595,7 +629,8 @@ class LocalRunner(Runner):
                 pid = None
     
         if pid is not None:
-            platform.graceful_kill_pid(pid, force=force, grace_seconds=5.0)
+            _terminate_with_grace(pid, grace_s=5., force=force)
+
     
         # Regardless of platform/liveness certainty, mark CANCELLED.
         self._finalize_unknown_exit(run_dir, state=RunStatus.CANCELLED, reason="user_cancel")
@@ -648,7 +683,7 @@ class LocalRunner(Runner):
             handle._cancel_requested = True
             proc = rec.handle._proc
             try:
-                platform.terminate_process_tree(proc, force=force)
+                _terminate_with_grace(proc, force=force)
             finally:
                 # Wake the monitor so it can notice state changes promptly.
                 self._cond.notify_all()
@@ -698,7 +733,7 @@ class LocalRunner(Runner):
                 # Enforce wall-clock timeout
                 if rec.deadline_monotonic is not None and proc.poll() is None and now >= rec.deadline_monotonic:
                     rec.handle._timed_out = True
-                    platform.graceful_kill(proc)
+                    _terminate_with_grace(proc)
                     _append_event(run_dir, rec.lock, state=RunStatus.TIMED_OUT, reason="timeout")
                     rec.deadline_monotonic = None  # prevent repeated signaling
 
