@@ -18,7 +18,7 @@ import shlex
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Callable, Mapping, Protocol, Sequence, TypeAlias, runtime_checkable
+from typing import Any, Callable, Mapping, Protocol, Sequence, TypeAlias, runtime_checkable
 
 # One-way dependency: runners -> materialize
 from tasklattice.materialize import RunMaterialized
@@ -71,7 +71,7 @@ class LaunchSpec:
     stdout_path: Path | None = None
     stderr_path: Path | None = None
     resources: Resources = Resources()
-    backend_opts: Mapping[str, object] = field(default_factory=dict)
+    backend_opts: Mapping[str, Any] = field(default_factory=dict)
 
 
 # -----------------------------------------------------------------------------
