@@ -1,8 +1,18 @@
 {
-  "typeCheckingMode": "basic",
+  "typeCheckingMode": "standard",
   "reportUnreachable": "none",
   "executionEnvironments": [
     { "root": ".", "pythonVersion": "3.11" }
-  ]
+  ],
+  "include": ["src", "tests"],
+  "exclude": [
+    "**/.venv",
+    "**/venv",
+    "**/env",
+    "**/__pycache__",
+    "**/site-packages/**",
+    "build",
+    "dist"
+  ],
 }
 
