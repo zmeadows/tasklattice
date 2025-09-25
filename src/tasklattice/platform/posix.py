@@ -12,7 +12,6 @@ class _Posix(PlatformOps):
     name: ClassVar[Literal["posix","nt"]] = "posix"
 
     def configure_popen_group(self, popen_kwargs: dict[str, Any]) -> None:
-        popen_kwargs["preexec_fn"] = os.setsid
         popen_kwargs["start_new_session"] = True
 
     def pid_alive(self, pid: int) -> bool:

@@ -158,6 +158,12 @@ def _terminate_with_grace(
     grace_s: float = 5.0,
     force: bool = False,
 ) -> None:
+    # If we only have a PID, avoid signaling unless we can prove it's alive now.
+    if isinstance(proc_or_pid, int):
+        alive = platform.pid_alive(proc_or_pid)
+        if alive is not True:
+            return  # Unknown or already dead → don't risk killing a reused PID.
+
     # Soft first
     platform.terminate_tree_by(proc_or_pid, mode="soft")
 
@@ -181,8 +187,9 @@ def _terminate_with_grace(
     # Hard if still around or caller insists
     still_alive = (
         (proc_or_pid.poll() is None) if isinstance(proc_or_pid, subprocess.Popen)
-        else (platform.pid_alive(int(proc_or_pid)) is not False)
+        else (platform.pid_alive(int(proc_or_pid)) is True)
     )
+
     if force or still_alive:
         platform.terminate_tree_by(proc_or_pid, mode="hard")
 
@@ -232,14 +239,13 @@ class _LocalRunHandle(RunHandle):
             return RunStatus.CANCELLED if self._cancel_requested else RunStatus.FAILED
         state = _as_status(doc.get("state"))
 
-        # Auto-finalize stale RUNNING on POSIX if pid is gone
-        if state == RunStatus.RUNNING and platform.name == "posix":
+        if state == RunStatus.RUNNING:
             pid_val = doc.get("external_id")
             try:
                 pid = int(pid_val) if pid_val is not None else None
             except Exception:
                 pid = None
-            if pid is not None and not platform.pid_alive(pid):
+            if pid is not None and platform.pid_alive(pid) is False:
                 self._runner._finalize_unknown_exit(self._run_dir, state=RunStatus.FAILED, reason="pid_not_found")
                 doc = _json_load(runstate_path(self._run_dir)) or {"state": RunStatus.FAILED}
                 state = _as_status(doc.get("state")) or RunStatus.FAILED
@@ -554,7 +560,7 @@ class LocalRunner(Runner):
                 pid = int(pid_val) if pid_val is not None else None
             except Exception:
                 pid = None
-            if pid is not None and not platform.pid_alive(pid):
+            if pid is not None and platform.pid_alive(pid) is False:
                 self._finalize_unknown_exit(run_dir, state=RunStatus.FAILED, reason="pid_not_found")
                 handle._started_evt.set()
                 handle._finished_evt.set()
