@@ -28,7 +28,6 @@ from __future__ import annotations
 import json
 import os
 import shutil
-import signal
 import subprocess
 import threading
 import time
@@ -51,6 +50,7 @@ from tasklattice.constants import (
     stdout_path as default_stdout_path,
 )
 from tasklattice.materialize import RunMaterialized
+from tasklattice.platform import platform
 from tasklattice.runners.base import (
     LaunchSpec,
     LaunchSpecFactory,
@@ -199,13 +199,13 @@ class _LocalRunHandle(RunHandle):
         state = _as_status(doc.get("state"))
 
         # Auto-finalize stale RUNNING on POSIX if pid is gone
-        if state == RunStatus.RUNNING and os.name == "posix":
+        if state == RunStatus.RUNNING and platform.name == "posix":
             pid_val = doc.get("external_id")
             try:
                 pid = int(pid_val) if pid_val is not None else None
             except Exception:
                 pid = None
-            if pid is not None and not self._runner._pid_alive(pid):
+            if pid is not None and not platform.pid_alive(pid):
                 self._runner._finalize_unknown_exit(self._run_dir, state=RunStatus.FAILED, reason="pid_not_found")
                 doc = _json_load(runstate_path(self._run_dir)) or {"state": RunStatus.FAILED}
                 state = _as_status(doc.get("state")) or RunStatus.FAILED
@@ -515,13 +515,12 @@ class LocalRunner(Runner):
             return handle
 
         if state == RunStatus.RUNNING:
-            # POSIX: check liveness and auto-finalize if gone.
             pid_val = doc.get("external_id")
             try:
                 pid = int(pid_val) if pid_val is not None else None
             except Exception:
                 pid = None
-            if pid is not None and os.name == "posix" and not self._pid_alive(pid):
+            if pid is not None and not platform.pid_alive(pid):
                 self._finalize_unknown_exit(run_dir, state=RunStatus.FAILED, reason="pid_not_found")
                 handle._started_evt.set()
                 handle._finished_evt.set()
@@ -549,27 +548,6 @@ class LocalRunner(Runner):
 
     # ---- helpers: PID liveness / termination / finalize ----------------------
 
-    @staticmethod
-    def _pid_alive(pid: int) -> bool:
-        """Best-effort check. POSIX: os.kill(pid, 0). Windows: conservative True.
-
-        Returning True on Windows avoids auto-finalizing based on a potentially
-        incorrect liveness check. Explicit cancel() still works via taskkill.
-        """
-        if os.name == "posix":
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                return False
-            except PermissionError:
-                # Process exists but is not ours.
-                return True
-            else:
-                return True
-        else:
-            # Conservative: assume alive/unknown.
-            return True
-
     def _finalize_unknown_exit(self, run_dir: Path, *, state: str, reason: str) -> None:
         """Idempotently flip a non-terminal run.json into a terminal state.
 
@@ -594,57 +572,8 @@ class LocalRunner(Runner):
             _json_atomic_write(path, doc)
             _append_event(run_dir, lock, state=state, reason=reason)
 
-    def _terminate_pid(self, *, pid: int, pgid: int | None, force: bool, grace_s: float = 5.0) -> None:
-        """Send termination to pid/pgid, escalate if needed.
 
-        POSIX: prefer process group if available. Windows: use taskkill.
-        """
-        if os.name == "posix":
-            try:
-                if pgid is not None:
-                    os.killpg(pgid, signal.SIGTERM)
-                else:
-                    os.kill(pid, signal.SIGTERM)
-            except Exception:
-                pass
-
-            # poll up to grace
-            deadline = time.monotonic() + float(grace_s)
-            while time.monotonic() < deadline:
-                if not self._pid_alive(pid):
-                    break
-                time.sleep(0.1)
-
-            if self._pid_alive(pid):
-                # escalate
-                try:
-                    if pgid is not None:
-                        os.killpg(pgid, signal.SIGKILL)
-                    else:
-                        os.kill(pid, signal.SIGKILL)
-                except Exception:
-                    pass
-        else:
-            # Windows: best-effort. /T kills children; first try gentle, then force.
-            try:
-                subprocess.run(
-                    ["taskkill", "/PID", str(pid), "/T"],
-                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-                )
-            except Exception:
-                pass
-            # Always issue a forced kill as a follow-up if force=True,
-            # or unconditionally since we can't reliably poll liveness.
-            if force:
-                try:
-                    subprocess.run(
-                        ["taskkill", "/PID", str(pid), "/T", "/F"],
-                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False
-                    )
-                except Exception:
-                    pass
-
-    def _cancel_attached(self, run_dir: Path, *, force: bool, handle: "_LocalRunHandle") -> None:
+    def _cancel_attached(self, run_dir: Path, *, force: bool, handle: _LocalRunHandle) -> None:
         """Cancel a RUNNING attached run via PID/PGID and finalize to CANCELLED."""
         lock = self._get_run_lock(run_dir)
         with lock:
@@ -657,23 +586,21 @@ class LocalRunner(Runner):
                 self._finalize_unknown_exit(run_dir, state=RunStatus.CANCELLED, reason="user_cancel_nonrunning")
                 handle._finished_evt.set()
                 return
+    
             # RUNNING
             pid_val = doc.get("external_id")
             try:
                 pid = int(pid_val) if pid_val is not None else None
             except Exception:
                 pid = None
-            pgid_val = doc.get("pgid")
-            try:
-                pgid = int(pgid_val) if pgid_val is not None else None
-            except Exception:
-                pgid = None
-
+    
         if pid is not None:
-            self._terminate_pid(pid=pid, pgid=pgid, force=force)
+            platform.graceful_kill_pid(pid, force=force, grace_seconds=5.0)
+    
         # Regardless of platform/liveness certainty, mark CANCELLED.
         self._finalize_unknown_exit(run_dir, state=RunStatus.CANCELLED, reason="user_cancel")
         handle._finished_evt.set()
+
     # ---- internal: cancellation of runs ------------------------------
 
     def _cancel_queued(self, run_dir: Path, *, handle: _LocalRunHandle) -> None:
@@ -699,13 +626,17 @@ class LocalRunner(Runner):
             doc["return_code"] = None
             _json_atomic_write(path, doc)
             _append_event(run_dir, item.lock, state=RunStatus.CANCELLED, reason="cancelled while queued")
+
         handle._finished_evt.set()
+
         # Drop the per-run lock since the run was never started
         with self._locks_lock:
             self._locks.pop(run_dir, None)
+
         # Wake monitor in case it was waiting for capacity/queue changes
         with self._active_lock:
             self._cond.notify_all()
+
 
     def _cancel_running(self, run_dir: Path, *, handle: _LocalRunHandle, force: bool = False) -> None:
         """Best-effort cancellation for a running process under the runner lock."""
@@ -717,35 +648,11 @@ class LocalRunner(Runner):
             handle._cancel_requested = True
             proc = rec.handle._proc
             try:
-                if os.name == "posix":
-                    try:
-                        os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-                    except Exception:
-                        try:
-                            proc.terminate()
-                        except Exception:
-                            pass
-                    if force:
-                        try:
-                            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                        except Exception:
-                            try:
-                                proc.kill()
-                            except Exception:
-                                pass
-                else:
-                    try:
-                        proc.terminate()
-                    except Exception:
-                        pass
-                    if force:
-                        try:
-                            proc.kill()
-                        except Exception:
-                            pass
+                platform.terminate_process_tree(proc, force=force)
             finally:
                 # Wake the monitor so it can notice state changes promptly.
                 self._cond.notify_all()
+
 
     # ---- internal: lock registry --------------------------------------------
 
@@ -791,7 +698,7 @@ class LocalRunner(Runner):
                 # Enforce wall-clock timeout
                 if rec.deadline_monotonic is not None and proc.poll() is None and now >= rec.deadline_monotonic:
                     rec.handle._timed_out = True
-                    self._signal_timeout(proc)
+                    platform.graceful_kill(proc)
                     _append_event(run_dir, rec.lock, state=RunStatus.TIMED_OUT, reason="timeout")
                     rec.deadline_monotonic = None  # prevent repeated signaling
 
@@ -897,11 +804,7 @@ class LocalRunner(Runner):
             env.update(spec.env)
 
         popen_kwargs: dict[str, Any] = {}
-        if os.name == "posix":
-            popen_kwargs["preexec_fn"] = os.setsid
-            popen_kwargs["start_new_session"] = True
-        elif os.name == "nt":
-            popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+        platform.configure_popen_group(popen_kwargs)
 
         proc = subprocess.Popen(
             list(spec.cmd),
@@ -924,14 +827,6 @@ class LocalRunner(Runner):
             doc["state"] = RunStatus.RUNNING
             doc["started_at"] = started_at
             doc["external_id"] = str(proc.pid)
-            # Record process group id (POSIX) to enable group termination
-            pgid = None
-            if os.name == "posix":
-                try:
-                    pgid = os.getpgid(proc.pid)
-                except Exception:
-                    pgid = None
-            doc["pgid"] = pgid
             _json_atomic_write(path, doc)
             _append_event(run_dir, lock, state=RunStatus.RUNNING, reason=f"spawned pid {proc.pid}")
 
@@ -957,45 +852,3 @@ class LocalRunner(Runner):
         )
         self._active[run_dir] = rec
 
-    @staticmethod
-    def _signal_timeout(proc: subprocess.Popen[bytes]) -> None:
-        """
-        Timeout handling: graceful TERM then forceful KILL after a short grace.
-        """
-        if os.name == "posix":
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except Exception:
-                try:
-                    proc.terminate()
-                except Exception:
-                    pass
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-                except Exception:
-                    try:
-                        proc.kill()
-                    except Exception:
-                        pass
-        else:
-            # try a soft break first, works if console + new process group
-            try:
-                proc.send_signal(signal.CTRL_BREAK_EVENT) # type: ignore[attr-defined]
-            except Exception:
-                pass
-
-            try:
-                proc.terminate()
-            except Exception:
-                pass
-
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass

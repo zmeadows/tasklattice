@@ -486,9 +486,6 @@ def _copy_tree(
                     os.link(src_file, dst_file)
                 except OSError:
                     shutil.copy2(src_file, dst_file)
-            else: 
-                # Future-proof: default to copy 
-                shutil.copy2(src_file, dst_file)
 
             if index_sink is not None:
                 st = dst_file.stat()

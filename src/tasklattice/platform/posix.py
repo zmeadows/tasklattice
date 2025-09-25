@@ -11,6 +11,7 @@ class _Posix(PlatformOps):
 
     def configure_popen_group(self, popen_kwargs: dict[str, Any]) -> None:
         popen_kwargs["preexec_fn"] = os.setsid
+        popen_kwargs["start_new_session"] = True
 
     def pid_alive(self, pid: int) -> bool: 
         try:
