@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Mapping, Protocol, Sequence, TypeAlias, runtime_checkable
 
 # One-way dependency: runners -> materialize
-from tasklattice.materialize import RunMaterialized
+from tasklattice.run.materialize import RunMaterialized
 
 # -----------------------------------------------------------------------------
 # Lifecycle model

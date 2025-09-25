@@ -49,7 +49,7 @@ from tasklattice.constants import (
 from tasklattice.constants import (
     stdout_path as default_stdout_path,
 )
-from tasklattice.materialize import RunMaterialized
+from tasklattice.run.materialize import RunMaterialized
 from tasklattice.platform import platform
 from tasklattice.runners.base import (
     LaunchSpec,

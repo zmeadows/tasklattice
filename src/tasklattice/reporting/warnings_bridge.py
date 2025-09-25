@@ -13,7 +13,7 @@ from typing import Callable, TextIO
 
 from rich.console import Console
 
-from tasklattice.diagnostics import Diagnostic, Emitter
+from tasklattice.reporting.diagnostics import Diagnostic, Emitter
 
 
 __all__ = [

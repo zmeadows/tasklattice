@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from rich.console import Console, RenderResult, ConsoleOptions
 
-from tasklattice.diagnostics import Diagnostic, render_diagnostic
+from tasklattice.reporting.diagnostics import Diagnostic, render_diagnostic
 
 
 __all__ = ["TLException"]

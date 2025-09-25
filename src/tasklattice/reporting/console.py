@@ -18,8 +18,8 @@ from typing import Iterator
 from rich.console import Console
 
 from tasklattice.errors import TLException
-from tasklattice.diagnostics import Emitter
-from tasklattice.warnings_bridge import install_warnings_bridge
+from tasklattice.reporting.diagnostics import Emitter
+from tasklattice.reporting.warnings_bridge import install_warnings_bridge
 
 
 __all__ = ["use_diagnostics", "print_exception", "run_with_diagnostics"]

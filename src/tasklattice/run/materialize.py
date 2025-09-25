@@ -14,9 +14,9 @@ from tasklattice._paths import AbsDir, RelPath
 from tasklattice.constants import INPUTS_SCHEMA, inputs_path, meta_dir
 from tasklattice.core import SubstitutionMap, ValueLiteral
 from tasklattice.render import Renderer, TLRenderer
-from tasklattice.runplan import LinkMode, RenderSpec, RunPlan
+from tasklattice.run.plan import LinkMode, RenderSpec, RunPlan
 from tasklattice.source import Source
-from tasklattice.staging import DefaultStaging, StagingBackend
+from tasklattice.run.staging import DefaultStaging, StagingBackend
 from tasklattice.template import Template
 
 
