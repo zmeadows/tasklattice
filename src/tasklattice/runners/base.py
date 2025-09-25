@@ -48,9 +48,12 @@ TERMINAL_STATES: frozenset[RunStatus] = frozenset({
 class Resources:
     """Portable resource hints (backends may ignore unsupported fields)."""
     cpus: int | None = None
-    gpus: int | None = None
+    gpus: int | dict[str, int] | None = None
     mem_mb: int | None = None
     time_limit_s: int | None = None  # wall-clock timeout if > 0
+    nodes: int | None = None
+    tasks_per_node: int | None = None
+    exclusive: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,7 +146,7 @@ def validate_spec_common(spec: LaunchSpec, *, run_dir: Path) -> None:
         raise ValueError("Resources.cpus must be a positive integer (or None)")
 
     # ngpus
-    if spec.resources.gpus is not None and spec.resources.gpus <= 0:
+    if isinstance(spec.resources.gpus, int) and spec.resources.gpus <= 0:
         raise ValueError("Resources.gpus must be a positive integer (or None)")
 
     # mem
