@@ -46,14 +46,21 @@ TERMINAL_STATES: frozenset[RunStatus] = frozenset({
 
 @dataclass(frozen=True, slots=True)
 class Resources:
-    """Portable resource hints (backends may ignore unsupported fields)."""
-    cpus: int | None = None
+    """
+    Scheduler-agnostic resource *hints*. Runners should honor supported fields
+    and ignore the rest. Values are requests, not guarantees.
+    """
+    cpus: int | None = None            # Logical CPU cores per task.
+
     gpus: int | dict[str, int] | None = None
-    mem_mb: int | None = None
-    time_limit_s: int | None = None  # wall-clock timeout if > 0
-    nodes: int | None = None
-    tasks_per_node: int | None = None
-    exclusive: bool | None = None
+    # GPU request: either a total count (e.g., 1) or a typed map
+    # (e.g., {"nvidia.com/gpu": 1} or {"a100": 1}).
+
+    mem_mb: int | None = None          # Memory in MB (runner may round/convert).
+    time_limit_s: int | None = None    # Wall-clock limit in seconds (>0 to apply).
+    nodes: int | None = None           # Nodes requested (for MPI/distributed).
+    tasks_per_node: int | None = None  # Parallel tasks (ranks) per node.
+    exclusive: bool | None = None      # Ask for exclusive node allocation.
 
 
 @dataclass(frozen=True, slots=True)

@@ -525,6 +525,7 @@ class LocalRunner(Runner):
         Returns a passive handle (no Popen). If the run is terminal, the handle's
         finished event is set. If the run is RUNNING but the PID is missing and
         we're on POSIX, auto-finalize to FAILED (pid_not_found).
+        returns None for QUEUED.
         """
         run_dir: Path = run.run_dir.path
         doc = _json_load(runstate_path(run_dir))
