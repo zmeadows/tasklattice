@@ -9,7 +9,7 @@ from tasklattice.core import (
     Number,
     SetLiteral,
     ValueLiteral,
-    type_raw_to_python_type,
+    type_str_to_type_python,
 )
 from tasklattice.placeholder.model import ParamResolved, ParamUnresolved
 
@@ -147,7 +147,7 @@ def _choose_type(
     domain: DomainIntervalUnresolved | DomainSetUnresolved | None,
 ) -> type[ValueLiteral]:
     if user_type_raw is not None:
-        t = type_raw_to_python_type(user_type_raw)
+        t = type_str_to_type_python(user_type_raw)
         if t is None:
             raise RuntimeError(f"Unknown user-specified type label: {user_type_raw!r}")
         return t

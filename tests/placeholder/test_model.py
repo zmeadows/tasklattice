@@ -9,6 +9,7 @@ from tasklattice.core import (
 
 # --- DomainInterval tests -----------------------------------------------------
 
+
 @pytest.mark.parametrize(
     "interval,value,expected",
     [
@@ -29,12 +30,15 @@ from tasklattice.core import (
         (DomainInterval(0, 10, True, True), None, False),
     ],
 )
-def test_domain_interval_contains(interval: DomainInterval, value: Number, expected: Number) -> None:
+def test_domain_interval_contains(
+    interval: DomainInterval, value: Number, expected: Number
+) -> None:
     """Check that DomainInterval.contains enforces bounds and type rules."""
     assert interval.contains(value) is expected
 
 
 # --- DomainSet tests ----------------------------------------------------------
+
 
 def test_domain_set_contains_basic() -> None:
     """DomainSet should report membership for exact matches."""
@@ -57,10 +61,12 @@ def test_domain_set_contains_bool_edge_case() -> None:
 
 # --- Abstract base class guard ------------------------------------------------
 
+
 def test_domain_is_abstract() -> None:
     """The Domain ABC should not be instantiable directly."""
     with pytest.raises(TypeError):
-        Domain() # type: ignore[abstract]
+        Domain()  # type: ignore[abstract]
+
 
 # [ FUTURE TESTS ]
 # --- Regex & Placeholder construction ---

@@ -21,7 +21,7 @@ SetLiteral: TypeAlias = str | Number
 
 
 # TODO: rename
-def type_raw_to_python_type(type_raw: str) -> type[ValueLiteral] | None:
+def type_str_to_type_python(type_str: str) -> type[ValueLiteral] | None:
     TYPE_MAP = {
         "str": str,
         "int": int,
@@ -29,7 +29,7 @@ def type_raw_to_python_type(type_raw: str) -> type[ValueLiteral] | None:
         "bool": bool,
     }
 
-    return TYPE_MAP.get(type_raw, None)
+    return TYPE_MAP.get(type_str, None)
 
 
 class Domain(ABC):

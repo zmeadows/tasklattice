@@ -6,7 +6,7 @@ repos:
         entry: ruff
         language: system
         types_or: [python]
-        args: ["check", "--fix"]
+        args: ["check", "--fix", "--force-exclude"]
       - id: mypy
         name: mypy
         entry: mypy
