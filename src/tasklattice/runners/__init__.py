@@ -9,14 +9,13 @@ from __future__ import annotations
 
 from importlib import import_module
 
+from tasklattice.run.state import TERMINAL_STATES, RunStatus
 from tasklattice.runners.base import (
-    TERMINAL_STATES,
     LaunchSpec,
     LaunchSpecFactory,
     Resources,
     RunHandle,
     Runner,
-    RunStatus,
     UserLaunchInput,
     ensure_launch_factory,
     ensure_launchspec,

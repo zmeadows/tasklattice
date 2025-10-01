@@ -4,7 +4,6 @@ tasklattice.runners.base
 
 Runner-side API and data models.
 
-- RunStatus (+ TERMINAL_STATES)
 - Resources, LaunchSpec
 - UserLaunchInput (LaunchSpec | factory | "str cmd" | ["argv"])
 - Normalization helpers for launch inputs
@@ -17,31 +16,12 @@ from __future__ import annotations
 import shlex
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from enum import StrEnum
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias, runtime_checkable
 
 # One-way dependency: runners -> materialize
 from tasklattice.run.materialize import RunMaterialized
-
-# -----------------------------------------------------------------------------
-# Lifecycle model
-# -----------------------------------------------------------------------------
-
-
-class RunStatus(StrEnum):
-    QUEUED = "queued"
-    RUNNING = "running"
-    SUCCEEDED = "succeeded"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-    TIMED_OUT = "timed_out"
-
-
-TERMINAL_STATES: frozenset[RunStatus] = frozenset(
-    {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.TIMED_OUT}
-)
-
+from tasklattice.run.state import RunStatus
 
 # -----------------------------------------------------------------------------
 # Portable submission model (runner-owned)

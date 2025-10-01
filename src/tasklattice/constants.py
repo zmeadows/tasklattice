@@ -43,11 +43,11 @@ def runstate_path(run_dir: Path) -> Path:
     return meta_dir(run_dir) / RUNSTATE_BASENAME
 
 
-def stdout_path(run_dir: Path) -> Path:
+def default_stdout_path(run_dir: Path) -> Path:
     """Default stdout log path for a run."""
     return meta_dir(run_dir) / STDOUT_BASENAME
 
 
-def stderr_path(run_dir: Path) -> Path:
+def default_stderr_path(run_dir: Path) -> Path:
     """Default stderr log path for a run."""
     return meta_dir(run_dir) / STDERR_BASENAME

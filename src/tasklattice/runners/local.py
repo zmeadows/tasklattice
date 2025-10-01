@@ -26,7 +26,6 @@ All run.json writes after spawn are serialized with a per-run Lock to avoid race
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
@@ -35,45 +34,41 @@ import time
 import warnings
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal, cast
 
 from tasklattice.constants import (
     RUNSTATE_SCHEMA,
+    default_stderr_path,
+    default_stdout_path,
     meta_dir,
     runstate_path,
 )
-from tasklattice.constants import (
-    stderr_path as default_stderr_path,
-)
-from tasklattice.constants import (
-    stdout_path as default_stdout_path,
-)
 from tasklattice.platform import platform
 from tasklattice.run.materialize import RunMaterialized
+from tasklattice.run.state import (
+    RunStatus,
+    append_event,
+    read_runstate,
+    spec_to_jsonable,
+    write_runstate_atomic,
+)
 from tasklattice.runners.base import (
     LaunchSpec,
     LaunchSpecFactory,
     RunHandle,
     Runner,
-    RunStatus,
     UserLaunchInput,
     ensure_launch_factory,
     validate_spec_common,
 )
+from tasklattice.utils.fs_utils import ensure_parent_dirs
+from tasklattice.utils.json_utils import json_atomic_write, json_load
+from tasklattice.utils.time_utils import now_iso
 
 # -----------------------------------------------------------------------------
 # Small utilities (json i/o, timestamps)
 # -----------------------------------------------------------------------------
-
-
-def _now_iso() -> str:
-    return datetime.now(UTC).isoformat()
-
-
-def _ensure_parent_dirs(p: Path) -> None:
-    p.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _as_status(x: Any) -> RunStatus | None:
@@ -85,72 +80,6 @@ def _as_status(x: Any) -> RunStatus | None:
         except ValueError:
             return None
     return None
-
-
-def _json_load(path: Path) -> dict[str, Any] | None:
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            data: Any = json.load(f)
-    except FileNotFoundError:
-        return None
-    except Exception:
-        # Corrupt or unreadable; treat as missing.
-        return None
-
-    if isinstance(data, dict):
-        # JSON object keys are strings per spec; cast is safe here.
-        return cast(dict[str, Any], data)
-
-    # If it wasn't a JSON object (e.g., list/str), ignore it.
-    return None
-
-
-def _json_atomic_write(path: Path, payload: dict[str, Any]) -> None:
-    _ensure_parent_dirs(path)
-    tmp = path.with_suffix(".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        json.dump(payload, f, indent=2, sort_keys=True)
-        f.write("\n")
-    os.replace(tmp, path)
-
-
-def _spec_to_jsonable(spec: LaunchSpec, *, run_dir: Path) -> dict[str, Any]:
-    """
-    JSON-friendly view of the effective LaunchSpec for provenance.
-    We keep cwd relative if provided, otherwise we render run_dir (absolute).
-    """
-    return {
-        "cmd": list(spec.cmd),
-        "env": dict(spec.env) if spec.env is not None else None,
-        "cwd": str(spec.cwd) if spec.cwd is not None else str(run_dir),
-        "stdout_path": (
-            str(spec.stdout_path) if spec.stdout_path else str(default_stdout_path(run_dir))
-        ),
-        "stderr_path": (
-            str(spec.stderr_path) if spec.stderr_path else str(default_stderr_path(run_dir))
-        ),
-        "resources": {
-            "cpus": spec.resources.cpus,
-            "gpus": spec.resources.gpus,
-            "mem_mb": spec.resources.mem_mb,
-            "time_limit_s": spec.resources.time_limit_s,
-        },
-        "backend_opts": dict(spec.backend_opts),
-    }
-
-
-def _append_event(run_dir: Path, lock: threading.Lock, *, state: str, reason: str) -> None:
-    """
-    Single path to append an event to run.json. If/when we add trimming, do it here.
-    """
-    with lock:
-        path = runstate_path(run_dir)
-        doc = _json_load(path) or {}
-        ev = list(doc.get("events", []))
-        ev.append({"timestamp": _now_iso(), "state": state, "reason": reason})
-        # TODO: If we ever want to trim: ev = ev[-MAX_EVENTS:]
-        doc["events"] = ev
-        _json_atomic_write(path, doc)
 
 
 def _resolve_max_parallel(setting: int | Literal["auto", "unbounded"]) -> int | None:
@@ -238,7 +167,7 @@ class _LocalRunHandle(RunHandle):
     def external_id(self) -> str | None:
         if self._proc is not None:
             return str(self._proc.pid)
-        doc = _json_load(runstate_path(self._run_dir)) or {}
+        doc = read_runstate(self._run_dir)
         eid = doc.get("external_id")
         return str(eid) if eid is not None else None
 
@@ -255,7 +184,7 @@ class _LocalRunHandle(RunHandle):
             return RunStatus.SUCCEEDED if rc == 0 else RunStatus.FAILED
 
         # Passive path: read run.json
-        doc = _json_load(runstate_path(self._run_dir))
+        doc = read_runstate(self._run_dir)
         if not doc:
             return RunStatus.CANCELLED if self._cancel_requested else RunStatus.FAILED
         state = _as_status(doc.get("state"))
@@ -270,7 +199,7 @@ class _LocalRunHandle(RunHandle):
                 self._runner._finalize_unknown_exit(
                     self._run_dir, state=RunStatus.FAILED, reason="pid_not_found"
                 )
-                doc = _json_load(runstate_path(self._run_dir)) or {"state": RunStatus.FAILED}
+                doc = read_runstate(self._run_dir) or {"state": RunStatus.FAILED}
                 state = _as_status(doc.get("state")) or RunStatus.FAILED
 
         try:
@@ -314,7 +243,7 @@ class _LocalRunHandle(RunHandle):
         self._cancel_requested = True
 
         if self._proc is None:
-            doc = _json_load(runstate_path(self._run_dir)) or {}
+            doc = read_runstate(self._run_dir)
             state = _as_status(doc.get("state"))
             if state == RunStatus.RUNNING:
                 self._runner._cancel_attached(
@@ -456,18 +385,18 @@ class LocalRunner(Runner):
         meta_dir(run_dir).mkdir(parents=True, exist_ok=True)
 
         # Per-run lock (shared with monitor)
-        lock = self._get_run_lock(run_dir)
+        run_lock = self._get_run_lock(run_dir)
 
         # Determine attempt & write "queued" atomically
-        with lock:
+        with run_lock:
             attempt = 1
-            prior = _json_load(runstate_path(run_dir))
+            prior = read_runstate(run_dir)
             if prior and isinstance(prior.get("attempt"), int):
                 attempt = prior["attempt"] + 1
 
             # Truncate logs fresh each submission
-            _ensure_parent_dirs(stdout_p)
-            _ensure_parent_dirs(stderr_p)
+            ensure_parent_dirs(stdout_p)
+            ensure_parent_dirs(stderr_p)
             open(stdout_p, "wb").close()
             open(stderr_p, "wb").close()
 
@@ -487,7 +416,7 @@ class LocalRunner(Runner):
             self.validate_spec(effective_spec, run_dir=run_dir)
 
             # Record queued state
-            queued_at = _now_iso()
+            queued_at = now_iso()
             state_path = runstate_path(run_dir)
             payload = {
                 "schema": RUNSTATE_SCHEMA,
@@ -500,11 +429,11 @@ class LocalRunner(Runner):
                 "finished_at": None,
                 "external_id": None,
                 "return_code": None,
-                "launch_spec": _spec_to_jsonable(effective_spec, run_dir=run_dir),
+                "launch_spec": spec_to_jsonable(effective_spec, run_dir=run_dir),
                 "events": [],
             }
-            _json_atomic_write(state_path, payload)
-            _append_event(run_dir, lock, state=RunStatus.QUEUED, reason="submit")
+            json_atomic_write(state_path, payload)
+            append_event(run_dir, state=RunStatus.QUEUED, reason="submit")
 
         # Construct handle
         handle = _LocalRunHandle(self, run_id, run_dir, None, stdout_p, stderr_p)
@@ -516,7 +445,7 @@ class LocalRunner(Runner):
             spec=effective_spec,
             stdout_path=stdout_p,
             stderr_path=stderr_p,
-            lock=lock,
+            lock=run_lock,
             handle=handle,
         )
 
@@ -527,15 +456,16 @@ class LocalRunner(Runner):
                     self._spawn_from_pending_locked(pending)
                 except Exception as exc:
                     # Mark FAILED with finished_at and a spawn event, then re-raise.
-                    with lock:
-                        path = runstate_path(run_dir)
-                        doc = _json_load(path) or {}
+                    with run_lock:
+                        doc = read_runstate(run_dir)
                         doc["state"] = RunStatus.FAILED
-                        doc["finished_at"] = _now_iso()
+                        doc["finished_at"] = now_iso()
                         doc["return_code"] = None
-                        _json_atomic_write(path, doc)
-                        _append_event(
-                            run_dir, lock, state=RunStatus.FAILED, reason=f"spawn failed: {exc!s}"
+                        write_runstate_atomic(run_dir, doc)
+                        append_event(
+                            run_dir,
+                            state=RunStatus.FAILED,
+                            reason=f"spawn failed: {exc!s}",
                         )
                     raise
             else:
@@ -555,7 +485,7 @@ class LocalRunner(Runner):
         returns None for QUEUED.
         """
         run_dir: Path = run.run_dir.path
-        doc = _json_load(runstate_path(run_dir))
+        doc = json_load(runstate_path(run_dir))
         if not doc:
             return None
 
@@ -633,10 +563,10 @@ class LocalRunner(Runner):
         Used when we detect a stale RUNNING state but the PID is gone, or after
         a PID-based termination where we cannot retrieve a return code.
         """
-        lock = self._get_run_lock(run_dir)
-        with lock:
+        run_lock = self._get_run_lock(run_dir)
+        with run_lock:
             path = runstate_path(run_dir)
-            doc = _json_load(path) or {}
+            doc = json_load(path) or {}
             cur = _as_status(doc.get("state"))
             if cur in {
                 RunStatus.SUCCEEDED,
@@ -646,15 +576,15 @@ class LocalRunner(Runner):
             }:
                 return
             doc["state"] = state
-            doc["finished_at"] = _now_iso()
+            doc["finished_at"] = now_iso()
             # keep existing return_code if set; else None
             if "return_code" not in doc:
                 doc["return_code"] = None
             # advisory flags
             doc["finalized_by_attach"] = True
             doc["reason"] = reason
-            _json_atomic_write(path, doc)
-            _append_event(run_dir, lock, state=state, reason=reason)
+            json_atomic_write(path, doc)
+            append_event(run_dir, state=state, reason=reason)
 
     def _cancel_attached(
         self, run_dir: Path, *, handle: _LocalRunHandle, grace_s: float | None = None, force: bool
@@ -662,7 +592,7 @@ class LocalRunner(Runner):
         """Cancel a RUNNING attached run via PID/PGID and finalize to CANCELLED."""
         lock = self._get_run_lock(run_dir)
         with lock:
-            doc = _json_load(runstate_path(run_dir)) or {}
+            doc = json_load(runstate_path(run_dir)) or {}
             state = _as_status(doc.get("state"))
             if state in {
                 RunStatus.SUCCEEDED,
@@ -704,24 +634,24 @@ class LocalRunner(Runner):
                 if item.run_dir == run_dir:
                     idx = i
                     break
+
             if idx is None:
                 # It might have just started; nothing to do here.
                 # The running cancel path will handle it.
                 return
-            item = self._pending[idx]
+
+            record = self._pending[idx]
             del self._pending[idx]
 
         # Mark cancelled in run.json
-        with item.lock:
+        with record.lock:
             path = runstate_path(run_dir)
-            doc = _json_load(path) or {}
+            doc = json_load(path) or {}
             doc["state"] = RunStatus.CANCELLED
-            doc["finished_at"] = _now_iso()
+            doc["finished_at"] = now_iso()
             doc["return_code"] = None
-            _json_atomic_write(path, doc)
-            _append_event(
-                run_dir, item.lock, state=RunStatus.CANCELLED, reason="cancelled while queued"
-            )
+            json_atomic_write(path, doc)
+            append_event(run_dir, state=RunStatus.CANCELLED, reason="cancelled while queued")
 
         handle._finished_evt.set()
 
@@ -791,36 +721,36 @@ class LocalRunner(Runner):
             to_remove: list[Path] = []
 
             for run_dir, rec in items:
-                proc = rec.handle._proc
-                if proc is None:
-                    # shouldn't happen for active records
-                    continue
+                with rec.lock:
+                    proc = rec.handle._proc
+                    if proc is None:
+                        # shouldn't happen for active records
+                        continue
 
-                # Enforce wall-clock timeout
-                if (
-                    rec.deadline_monotonic is not None
-                    and proc.poll() is None
-                    and now >= rec.deadline_monotonic
-                ):
-                    rec.handle._timed_out = True
-                    _terminate_with_grace(proc)
-                    _append_event(run_dir, rec.lock, state=RunStatus.TIMED_OUT, reason="timeout")
-                    rec.deadline_monotonic = None  # prevent repeated signaling
+                    # Enforce wall-clock timeout
+                    if (
+                        rec.deadline_monotonic is not None
+                        and proc.poll() is None
+                        and now >= rec.deadline_monotonic
+                    ):
+                        rec.handle._timed_out = True
+                        _terminate_with_grace(proc)
+                        append_event(run_dir, state=RunStatus.TIMED_OUT, reason="timeout")
+                        rec.deadline_monotonic = None  # prevent repeated signaling
 
-                # Finalization on process exit
-                rc = proc.poll()
-                if rc is not None:
-                    finished_at = _now_iso()
-                    if rec.handle._timed_out:
-                        final_state = RunStatus.TIMED_OUT
-                    elif rec.handle._cancel_requested:
-                        final_state = RunStatus.CANCELLED
-                    else:
-                        final_state = RunStatus.SUCCEEDED if rc == 0 else RunStatus.FAILED
+                    # Finalization on process exit
+                    rc = proc.poll()
+                    if rc is not None:
+                        finished_at = now_iso()
+                        if rec.handle._timed_out:
+                            final_state = RunStatus.TIMED_OUT
+                        elif rec.handle._cancel_requested:
+                            final_state = RunStatus.CANCELLED
+                        else:
+                            final_state = RunStatus.SUCCEEDED if rc == 0 else RunStatus.FAILED
 
-                    with rec.lock:
                         path = runstate_path(run_dir)
-                        doc = _json_load(path) or {}
+                        doc = json_load(path) or {}
                         doc.update(
                             {
                                 "state": final_state,
@@ -828,11 +758,11 @@ class LocalRunner(Runner):
                                 "return_code": rc,
                             }
                         )
-                        _json_atomic_write(path, doc)
-                        _append_event(run_dir, rec.lock, state=final_state, reason="process exited")
+                        json_atomic_write(path, doc)
+                        append_event(run_dir, state=final_state, reason="process exited")
 
-                    rec.handle._finished_evt.set()
-                    to_remove.append(run_dir)
+                        rec.handle._finished_evt.set()
+                        to_remove.append(run_dir)
 
             if to_remove:
                 with self._active_lock:
@@ -853,14 +783,13 @@ class LocalRunner(Runner):
                         # Mark FAILED and continue to next pending
                         with item.lock:
                             path = runstate_path(item.run_dir)
-                            doc = _json_load(path) or {}
+                            doc = json_load(path) or {}
                             doc["state"] = RunStatus.FAILED
-                            doc["finished_at"] = _now_iso()
+                            doc["finished_at"] = now_iso()
                             doc["return_code"] = None
-                            _json_atomic_write(path, doc)
-                            _append_event(
+                            json_atomic_write(path, doc)
+                            append_event(
                                 item.run_dir,
-                                item.lock,
                                 state=RunStatus.FAILED,
                                 reason=f"spawn failed: {exc!s}",
                             )
@@ -897,15 +826,15 @@ class LocalRunner(Runner):
 
                 self._cond.wait(timeout=timeout)
 
-    def _spawn_from_pending_locked(self, item: _PendingRunRecord) -> None:
+    def _spawn_from_pending_locked(self, record: _PendingRunRecord) -> None:
         """
         Spawn a queued run NOW (caller must hold _active_lock). On success,
         writes 'running', registers into _active, and updates the handle.
         On failure, raises; caller is responsible for marking FAILED state.
         """
-        run_dir = item.run_dir
-        spec = item.spec
-        lock = item.lock
+        run_dir = record.run_dir
+        spec = record.spec
+        run_lock = record.lock
 
         # Compute absolute cwd under run_dir
         cwd_abs = run_dir if spec.cwd is None else (run_dir / spec.cwd)
@@ -922,8 +851,8 @@ class LocalRunner(Runner):
             list(spec.cmd),
             cwd=str(cwd_abs),
             env=env,
-            stdout=open(item.stdout_path, "ab", buffering=0),
-            stderr=open(item.stderr_path, "ab", buffering=0),
+            stdout=open(record.stdout_path, "ab", buffering=0),
+            stderr=open(record.stderr_path, "ab", buffering=0),
             text=False,
             encoding=None,
             errors=None,
@@ -932,21 +861,21 @@ class LocalRunner(Runner):
         proc = cast(subprocess.Popen[bytes], proc)
 
         # Mark running
-        with lock:
-            started_at = _now_iso()
+        with run_lock:
+            started_at = now_iso()
             path = runstate_path(run_dir)
-            doc = _json_load(path) or {}
+            doc = json_load(path) or {}
             doc["state"] = RunStatus.RUNNING
             doc["started_at"] = started_at
             doc["external_id"] = str(proc.pid)
-            _json_atomic_write(path, doc)
-            _append_event(run_dir, lock, state=RunStatus.RUNNING, reason=f"spawned pid {proc.pid}")
+            json_atomic_write(path, doc)
+            append_event(run_dir, state=RunStatus.RUNNING, reason=f"spawned pid {proc.pid}")
 
         # Update handle & register
-        item.handle._proc = proc
-        item.handle._stdout = item.stdout_path
-        item.handle._stderr = item.stderr_path
-        item.handle._started_evt.set()
+        record.handle._proc = proc
+        record.handle._stdout = record.stdout_path
+        record.handle._stderr = record.stderr_path
+        record.handle._started_evt.set()
 
         deadline: float | None = None
         tl = spec.resources.time_limit_s
@@ -954,12 +883,12 @@ class LocalRunner(Runner):
             deadline = time.monotonic() + float(tl)
 
         rec = _ActiveRunRecord(
-            run_id=item.run_id,
+            run_id=record.run_id,
             run_dir=run_dir,
-            handle=item.handle,
-            stdout_path=item.stdout_path,
-            stderr_path=item.stderr_path,
+            handle=record.handle,
+            stdout_path=record.stdout_path,
+            stderr_path=record.stderr_path,
             deadline_monotonic=deadline,
-            lock=lock,
+            lock=run_lock,
         )
         self._active[run_dir] = rec
