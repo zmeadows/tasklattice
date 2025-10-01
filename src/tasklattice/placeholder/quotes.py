@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from tasklattice.source import Source, SourceIndex, SourceSpan
 from tasklattice.core import QuoteStyle
+from tasklattice.source import Source, SourceIndex, SourceSpan
+
 
 @dataclass(frozen=True, slots=True)
 class QuoteContext:
@@ -19,11 +20,13 @@ class QuoteContext:
     def interior(self) -> SourceSpan:
         return SourceSpan(self.left_index + 1, self.right_index)
 
+
 def _skip_ws_left(text: str, i: SourceIndex) -> SourceIndex:
     j = i
     while int(j) >= 0 and text[int(j)].isspace():
         j = j - 1
     return j
+
 
 def _skip_ws_right(text: str, i: SourceIndex) -> SourceIndex:
     j = i
@@ -32,6 +35,7 @@ def _skip_ws_right(text: str, i: SourceIndex) -> SourceIndex:
         j = j + 1
     return j
 
+
 def _as_quote_type(ch: str) -> QuoteStyle | None:
     if ch == '"':
         return QuoteStyle.DOUBLE
@@ -39,6 +43,7 @@ def _as_quote_type(ch: str) -> QuoteStyle | None:
         return QuoteStyle.SINGLE
     else:
         return None
+
 
 def detect_quote_context(source: Source, span_outer: SourceSpan) -> QuoteContext | None:
     """
@@ -74,9 +79,4 @@ def detect_quote_context(source: Source, span_outer: SourceSpan) -> QuoteContext
     if int(right_scan) > 0 and text[int(right_scan) - 1] == "\\":
         return None
 
-    return QuoteContext(
-        style=left_style,
-        left_index=left_scan,
-        right_index=right_scan
-    )
-
+    return QuoteContext(style=left_style, left_index=left_scan, right_index=right_scan)

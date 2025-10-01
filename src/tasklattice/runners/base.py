@@ -15,10 +15,11 @@ Runner-side API and data models.
 from __future__ import annotations
 
 import shlex
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Callable, Mapping, Protocol, Sequence, TypeAlias, runtime_checkable
+from typing import Any, Protocol, TypeAlias, runtime_checkable
 
 # One-way dependency: runners -> materialize
 from tasklattice.run.materialize import RunMaterialized
@@ -26,6 +27,7 @@ from tasklattice.run.materialize import RunMaterialized
 # -----------------------------------------------------------------------------
 # Lifecycle model
 # -----------------------------------------------------------------------------
+
 
 class RunStatus(StrEnum):
     QUEUED = "queued"
@@ -35,14 +37,16 @@ class RunStatus(StrEnum):
     CANCELLED = "cancelled"
     TIMED_OUT = "timed_out"
 
-TERMINAL_STATES: frozenset[RunStatus] = frozenset({
-    RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.TIMED_OUT
-})
+
+TERMINAL_STATES: frozenset[RunStatus] = frozenset(
+    {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.TIMED_OUT}
+)
 
 
 # -----------------------------------------------------------------------------
 # Portable submission model (runner-owned)
 # -----------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class Resources:
@@ -50,17 +54,18 @@ class Resources:
     Scheduler-agnostic resource *hints*. Runners should honor supported fields
     and ignore the rest. Values are requests, not guarantees.
     """
-    cpus: int | None = None            # Logical CPU cores per task.
+
+    cpus: int | None = None  # Logical CPU cores per task.
 
     gpus: int | dict[str, int] | None = None
     # GPU request: either a total count (e.g., 1) or a typed map
     # (e.g., {"nvidia.com/gpu": 1} or {"a100": 1}).
 
-    mem_mb: int | None = None          # Memory in MB (runner may round/convert).
-    time_limit_s: int | None = None    # Wall-clock limit in seconds (>0 to apply).
-    nodes: int | None = None           # Nodes requested (for MPI/distributed).
+    mem_mb: int | None = None  # Memory in MB (runner may round/convert).
+    time_limit_s: int | None = None  # Wall-clock limit in seconds (>0 to apply).
+    nodes: int | None = None  # Nodes requested (for MPI/distributed).
     tasks_per_node: int | None = None  # Parallel tasks (ranks) per node.
-    exclusive: bool | None = None      # Ask for exclusive node allocation.
+    exclusive: bool | None = None  # Ask for exclusive node allocation.
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +80,7 @@ class LaunchSpec:
     resources: portable hints (advisory; time_limit_s may be enforced).
     backend_opts: free-form backend-specific knobs (namespaced like "slurm.partition").
     """
+
     cmd: Sequence[str]
     env: Mapping[str, str] | None = None
     cwd: Path | None = None
@@ -91,9 +97,11 @@ class LaunchSpec:
 LaunchSpecFactory: TypeAlias = Callable[[RunMaterialized], LaunchSpec]
 UserLaunchInput: TypeAlias = LaunchSpec | LaunchSpecFactory | str | Sequence[str]
 
+
 def _cmd_from_string(s: str) -> list[str]:
     """Split a shell-style command string into argv using POSIX rules."""
     return shlex.split(s, posix=True)
+
 
 def ensure_launchspec(obj: UserLaunchInput) -> LaunchSpec:
     """Convert UserLaunchInput into a constant LaunchSpec (callables not accepted here)."""
@@ -108,13 +116,16 @@ def ensure_launchspec(obj: UserLaunchInput) -> LaunchSpec:
         "for callables use ensure_launch_factory()."
     )
 
+
 def ensure_launch_factory(obj: UserLaunchInput) -> LaunchSpecFactory:
     """Normalize any UserLaunchInput into a LaunchSpecFactory."""
     if callable(obj) and not isinstance(obj, str):
         return obj
     spec = ensure_launchspec(obj)
+
     def _factory(_: RunMaterialized) -> LaunchSpec:
         return spec
+
     return _factory
 
 
@@ -125,6 +136,7 @@ def ensure_launch_factory(obj: UserLaunchInput) -> LaunchSpecFactory:
 # Namespaces we accept for backend_opts keys. Add more as you add backends.
 ALLOWED_BACKEND_OPT_NAMESPACES: set[str] = {"local", "slurm", "k8s"}
 
+
 def _is_within(child: Path, root: Path) -> bool:
     """Return True if 'child' is inside 'root' (after resolving symlinks)."""
     try:
@@ -132,6 +144,7 @@ def _is_within(child: Path, root: Path) -> bool:
         return True
     except Exception:
         return False
+
 
 def validate_spec_common(spec: LaunchSpec, *, run_dir: Path) -> None:
     """
@@ -142,7 +155,8 @@ def validate_spec_common(spec: LaunchSpec, *, run_dir: Path) -> None:
     - time_limit_s must be positive (or None)
     - cwd must be None or RELATIVE (resolved under run_dir)
     - stdout/stderr, if provided, must resolve under run_dir
-    - backend_opts keys must be namespaced: "<ns>.<key>", where ns is in ALLOWED_BACKEND_OPT_NAMESPACES
+    - backend_opts keys must be namespaced: "<ns>.<key>",
+        where ns is in ALLOWED_BACKEND_OPT_NAMESPACES
     """
     # cmd
     if not spec.cmd or any(not isinstance(c, str) for c in spec.cmd):
@@ -173,7 +187,9 @@ def validate_spec_common(spec: LaunchSpec, *, run_dir: Path) -> None:
     # cwd policy
     if spec.cwd is not None:
         if Path(spec.cwd).is_absolute():
-            raise ValueError("LaunchSpec.cwd must be None or a RELATIVE path (resolved under run_dir)")
+            raise ValueError(
+                "LaunchSpec.cwd must be None or a RELATIVE path (resolved under run_dir)"
+            )
 
     # stdout/stderr must live under run_dir if provided
     for label, p in (("stdout_path", spec.stdout_path), ("stderr_path", spec.stderr_path)):
@@ -199,25 +215,29 @@ def validate_spec_common(spec: LaunchSpec, *, run_dir: Path) -> None:
 # Protocols
 # -----------------------------------------------------------------------------
 
+
 @runtime_checkable
 class RunHandle(Protocol):
     def run_id(self) -> str: ...
     def external_id(self) -> str | None: ...
     def status(self) -> RunStatus: ...
     def wait(self, timeout_s: float | None = None) -> RunStatus: ...
-    def cancel(self, force: bool = False, grace_s: float | None = None,
-               reason: str | None = None) -> None: ...
+    def cancel(
+        self, force: bool = False, grace_s: float | None = None, reason: str | None = None
+    ) -> None: ...
     def return_code(self) -> int | None: ...
     def stdout_path(self) -> Path | None: ...
     def stderr_path(self) -> Path | None: ...
 
+
 @runtime_checkable
 class Runner(Protocol):
     name: str
+
     def submit(self, run: RunMaterialized) -> RunHandle: ...
     def attach(self, run: RunMaterialized) -> RunHandle | None: ...
     def close(self) -> None: ...
+
     # Optional introspection/validation hooks:
     def effective_spec(self, run: RunMaterialized) -> LaunchSpec: ...
     def validate_spec(self, spec: LaunchSpec, *, run_dir: Path) -> None: ...
-

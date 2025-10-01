@@ -6,17 +6,18 @@ import json
 import math
 import os
 import shutil
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Mapping, Sequence, Iterable
+from typing import Any
 
 from tasklattice._paths import AbsDir, RelPath
 from tasklattice.constants import INPUTS_SCHEMA, inputs_path, meta_dir
 from tasklattice.core import SubstitutionMap, ValueLiteral
 from tasklattice.render import Renderer, TLRenderer
 from tasklattice.run.plan import LinkMode, RenderSpec, RunPlan
-from tasklattice.source import Source
 from tasklattice.run.staging import DefaultStaging, StagingBackend
+from tasklattice.source import Source
 from tasklattice.template import Template
 
 
@@ -26,21 +27,25 @@ from tasklattice.template import Template
 @dataclass(frozen=True, slots=True)
 class FileRecord:
     """One file produced in a run directory."""
-    target_relpath: RelPath          # target path (relative to run dir)
-    source_relpath: RelPath | None   # for rendered files: template source; for copies: original relpath
-    was_rendered: bool               # True for rendered files
-    size_bytes: int | None = None    # size of the file written at target
-    sha256: str | None = None        # digest of the file content at target
+
+    target_relpath: RelPath  # target path (relative to run dir)
+    source_relpath: (
+        RelPath | None
+    )  # for rendered files: template source; for copies: original relpath
+    was_rendered: bool  # True for rendered files
+    size_bytes: int | None = None  # size of the file written at target
+    sha256: str | None = None  # digest of the file content at target
 
 
 @dataclass(frozen=True, slots=True)
 class RunMaterialized:
     """Immutable description of a single *realized* run directory."""
+
     run_id: str
-    run_dir: AbsDir                     # final directory: <results_dir>/<run_id>
-    plan_fingerprint: str               # 12-char hex digest
-    subs_fingerprint: str               # 12-char hex digest
-    file_records: tuple[FileRecord, ...]     # rendered files (optionally includes copies later)
+    run_dir: AbsDir  # final directory: <results_dir>/<run_id>
+    plan_fingerprint: str  # 12-char hex digest
+    subs_fingerprint: str  # 12-char hex digest
+    file_records: tuple[FileRecord, ...]  # rendered files (optionally includes copies later)
 
 
 # -----------------------------------------------------------------------------
@@ -94,6 +99,7 @@ def materialize_run(
     )
     return mat.run(subs)
 
+
 def load_materialized(run_dir: str | os.PathLike[str] | AbsDir) -> RunMaterialized:
     """
     Load an existing, fully materialized run directory created by TaskLattice.
@@ -113,8 +119,8 @@ def load_materialized(run_dir: str | os.PathLike[str] | AbsDir) -> RunMaterializ
     rd = run_dir if isinstance(run_dir, AbsDir) else AbsDir.existing(run_dir)
 
     # Required metadata paths
-    ip = inputs_path(rd.path)             # .../_tl/inputs.json
-    fp = meta_dir(rd.path) / "files.json" # .../_tl/files.json
+    ip = inputs_path(rd.path)  # .../_tl/inputs.json
+    fp = meta_dir(rd.path) / "files.json"  # .../_tl/files.json
 
     # --- inputs.json (required) ---
     if not ip.is_file():
@@ -156,7 +162,9 @@ def load_materialized(run_dir: str | os.PathLike[str] | AbsDir) -> RunMaterializ
 
     for i, item in enumerate(data):
         if not isinstance(item, dict):
-            raise ValueError(f"Malformed files.json entry #{i}: expected object, got {type(item).__name__}")
+            raise ValueError(
+                f"Malformed files.json entry #{i}: expected object, got {type(item).__name__}"
+            )
 
         try:
             target_relpath_s = item["target_relpath"]
@@ -182,7 +190,9 @@ def load_materialized(run_dir: str | os.PathLike[str] | AbsDir) -> RunMaterializ
                 raise TypeError("sha256 must be a string or null")
 
         except KeyError as e:
-            raise ValueError(f"Malformed files.json entry #{i}: missing key {e.args[0]!r}") from None
+            raise ValueError(
+                f"Malformed files.json entry #{i}: missing key {e.args[0]!r}"
+            ) from None
         except Exception as e:
             raise ValueError(f"Malformed files.json entry #{i}: {e}") from e
 
@@ -195,7 +205,9 @@ def load_materialized(run_dir: str | os.PathLike[str] | AbsDir) -> RunMaterializ
         records.append(
             FileRecord(
                 target_relpath=RelPath(target_relpath_s),
-                source_relpath=(RelPath(source_relpath_s) if source_relpath_s is not None else None),
+                source_relpath=(
+                    RelPath(source_relpath_s) if source_relpath_s is not None else None
+                ),
                 was_rendered=was_rendered,
                 size_bytes=size_bytes_v,
                 sha256=sha256_v,
@@ -320,10 +332,10 @@ class Materializer:
         self.staging.finalize(tmp_dir, final_dir)
 
         _write_inputs_json(
-            final_dir,                         # Path to the run's permanent directory
-            params=subs,                       # Mapping[ParamName, ValueLiteral]
-            plan_fingerprint=plan_fp,          # str
-            subs_fingerprint=subs_fp,          # str
+            final_dir,  # Path to the run's permanent directory
+            params=subs,  # Mapping[ParamName, ValueLiteral]
+            plan_fingerprint=plan_fp,  # str
+            subs_fingerprint=subs_fp,  # str
         )
 
         # 5) Optionally index copied/linked files (after move so relpaths are stable)
@@ -357,7 +369,7 @@ def _to_json_scalar(value: Any) -> Any:
     Raise ValueError on NaN/Inf so inputs.json is always valid JSON.
     """
     # bool is a subclass of int; check order carefully
-    if isinstance(value, (str, bool, int)):
+    if isinstance(value, str | bool | int):
         return value
     if isinstance(value, float):
         if math.isfinite(value):
@@ -377,8 +389,9 @@ def _flatten_subs_for_inputs(subs: Mapping[Any, Any]) -> dict[str, Any]:
     return out
 
 
-def _write_inputs_json(run_dir: Path, *, params: Mapping[Any, Any],
-                      plan_fingerprint: str, subs_fingerprint: str) -> None:
+def _write_inputs_json(
+    run_dir: Path, *, params: Mapping[Any, Any], plan_fingerprint: str, subs_fingerprint: str
+) -> None:
     """
     Write the static materialization metadata for a run (once, post-finalize).
     """
@@ -403,7 +416,7 @@ def _write_files_json_streaming(run_dir: Path, records: Iterable[FileRecord]) ->
 
     tmp = path.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as f:
-        f.write('[')
+        f.write("[")
         first = True
         for r in records:
             item = {
@@ -416,10 +429,10 @@ def _write_files_json_streaming(run_dir: Path, records: Iterable[FileRecord]) ->
             if first:
                 first = False
             else:
-                f.write(',')
+                f.write(",")
             # compact separators keep the file small
             f.write(json.dumps(item, separators=(",", ":")))
-        f.write(']\n')
+        f.write("]\n")
         f.flush()
         os.fsync(f.fileno())
 
@@ -435,6 +448,7 @@ def _write_files_json_streaming(run_dir: Path, records: Iterable[FileRecord]) ->
             os.close(dir_fd)
     except Exception:
         pass  # best-effort on platforms that support it
+
 
 def _copy_tree(
     *,
@@ -554,7 +568,9 @@ def _plan_fingerprint(plan: RunPlan) -> str:
         "newline": plan.newline,
         "ensure_trailing_newline": plan.ensure_trailing_newline,
         "link_mode": str(plan.link_mode),
-        "render_pairs": tuple((str(rs.source_relpath), str(rs.target_relpath)) for rs in plan.render_files),
+        "render_pairs": tuple(
+            (str(rs.source_relpath), str(rs.target_relpath)) for rs in plan.render_files
+        ),
     }
     return _hash_stable(payload)
 
@@ -569,6 +585,7 @@ def _subs_fingerprint(subs: SubstitutionMap) -> str:
 def _hash_stable(obj: object) -> str:
     """Stable JSON-based hashing utility used by both plan/subs fingerprints."""
     import json
+
     blob = json.dumps(obj, sort_keys=True, separators=(",", ":")).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()[:12]
 

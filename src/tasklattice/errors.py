@@ -6,10 +6,10 @@ using the same rich code-frame formatting.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from rich.console import Console, RenderResult, ConsoleOptions
+
+from rich.console import Console, ConsoleOptions, RenderResult
 
 from tasklattice.reporting.diagnostics import Diagnostic, render_diagnostic
-
 
 __all__ = ["TLException"]
 
@@ -19,6 +19,7 @@ class TLException(Exception):
     """
     Base TaskLattice exception that carries a Diagnostic and renders nicely with Rich.
     """
+
     diagnostic: Diagnostic
 
     # Plain-text fallback (CI/log files; or if user didn't use Console)
@@ -35,4 +36,3 @@ class TLException(Exception):
         _ = console
         _ = options
         yield render_diagnostic(self.diagnostic)
-

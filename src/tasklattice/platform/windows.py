@@ -42,7 +42,9 @@ class _Win(PlatformOps):
         except Exception:
             pass
 
-    def terminate_tree_by(self, proc_or_pid: int | subprocess.Popen[Any], mode: TerminationMode) -> None:
+    def terminate_tree_by(
+        self, proc_or_pid: int | subprocess.Popen[Any], mode: TerminationMode
+    ) -> None:
         if isinstance(proc_or_pid, subprocess.Popen):
             if mode == "soft":
                 try:
@@ -62,4 +64,3 @@ class _Win(PlatformOps):
 
 
 platform_impl: PlatformOps = _Win()
-

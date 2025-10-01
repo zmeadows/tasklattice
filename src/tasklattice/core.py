@@ -7,9 +7,11 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import TypeAlias
 
+
 class QuoteStyle(StrEnum):
     SINGLE = "single"
     DOUBLE = "double"
+
 
 Number: TypeAlias = int | float
 
@@ -17,13 +19,14 @@ ValueLiteral: TypeAlias = str | Number | bool
 
 SetLiteral: TypeAlias = str | Number
 
+
 # TODO: rename
 def type_raw_to_python_type(type_raw: str) -> type[ValueLiteral] | None:
     TYPE_MAP = {
-        "str" : str,
-        "int" : int,
-        "float" : float,
-        "bool" : bool,
+        "str": str,
+        "int": int,
+        "float": float,
+        "bool": bool,
     }
 
     return TYPE_MAP.get(type_raw, None)
@@ -32,6 +35,7 @@ def type_raw_to_python_type(type_raw: str) -> type[ValueLiteral] | None:
 class Domain(ABC):
     @abstractmethod
     def contains(self, value: ValueLiteral) -> bool: ...
+
 
 @dataclass(frozen=True, slots=True)
 class DomainInterval(Domain):
@@ -51,12 +55,14 @@ class DomainInterval(Domain):
 
         return True
 
+
 @dataclass(frozen=True, slots=True)
 class DomainIntervalUnresolved:
     lower: Number
     upper: Number
     lpar: str
     rpar: str
+
 
 @dataclass(frozen=True, slots=True)
 class DomainSet(Domain):
@@ -69,6 +75,7 @@ class DomainSet(Domain):
             return any(v is value for v in self.values)
         return value in self.values
 
+
 @dataclass(frozen=True, slots=True)
 class DomainSetUnresolved:
     entries: list[SetLiteral]
@@ -76,6 +83,7 @@ class DomainSetUnresolved:
 
 # IDENTIFIER: /[A-Za-z_][A-Za-z0-9_]*/
 _PARAM_NAME_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\Z")
+
 
 @dataclass(frozen=True, slots=True)
 class ParamName:
@@ -98,5 +106,6 @@ class ParamName:
 
     def __hash__(self) -> int:
         return hash(self.value)
+
 
 SubstitutionMap: TypeAlias = Mapping[ParamName, ValueLiteral]

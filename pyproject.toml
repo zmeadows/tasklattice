@@ -36,22 +36,31 @@ package-dir = {"" = "src"}
 [tool.setuptools.packages.find]
 where = ["src"]
 
-# --- Ruff ---
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-# If you prefer not to lint tests, keep this. Otherwise, delete this line.
 exclude = ["tests/*"]
+src = ["src"]
 
-# --- Mypy ---
+[tool.ruff.lint]
+# Include import sorting (I), plus some common, fast rules
+select = ["E", "F", "I", "B", "UP"]
+fixable = ["ALL"]
+
 [tool.mypy]
 python_version = "3.11"
 mypy_path = "src"
 strict = true
 ignore_missing_imports = true
 check_untyped_defs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+disallow_untyped_defs = true
 
-# --- Pytest ---
 [tool.pytest.ini_options]
 minversion = "7.0"
 addopts = "-ra -q"

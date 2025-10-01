@@ -1,10 +1,10 @@
 # tasklattice/staging.py
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
-from pathlib import Path
 import os
 import tempfile
+from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 """
 Staging backends for building run directories.

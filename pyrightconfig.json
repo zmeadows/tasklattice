@@ -1,9 +1,10 @@
 {
   "typeCheckingMode": "standard",
-  "reportUnreachable": "none",
   "executionEnvironments": [
     { "root": ".", "pythonVersion": "3.11" }
   ],
+  "venvPath": ".",
+  "venv": ".venv",
   "include": ["src", "tests"],
   "exclude": [
     "**/.venv",
@@ -14,5 +15,7 @@
     "build",
     "dist"
   ],
+  "reportMissingTypeStubs": "warning",
+  "ignore": ["**/.venv/**", "**/build/**"],
 }
 

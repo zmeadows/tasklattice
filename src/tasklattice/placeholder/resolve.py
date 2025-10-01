@@ -11,10 +11,10 @@ from tasklattice.core import (
     ValueLiteral,
     type_raw_to_python_type,
 )
-
 from tasklattice.placeholder.model import ParamResolved, ParamUnresolved
 
 _NUMERIC_TYPES: tuple[type, ...] = (int, float)
+
 
 def _coerce_numeric(value: ValueLiteral, target: type[ValueLiteral]) -> Number:
     """
@@ -47,6 +47,7 @@ def _coerce_numeric(value: ValueLiteral, target: type[ValueLiteral]) -> Number:
 
     raise TypeError(f"_coerce_numeric received non-numeric target {target!r}")
 
+
 def _resolve_interval(
     dom: DomainIntervalUnresolved,
     target_type: type[ValueLiteral] | None,
@@ -60,15 +61,13 @@ def _resolve_interval(
     if target_type is not None:
         if target_type not in (int, float):
             raise TypeError("Interval domains are only valid for numeric types (int/float)")
-        lower = _coerce_numeric(lower, target_type)  
-        upper = _coerce_numeric(upper, target_type)  
+        lower = _coerce_numeric(lower, target_type)
+        upper = _coerce_numeric(upper, target_type)
         assert isinstance(lower, _NUMERIC_TYPES) and isinstance(upper, _NUMERIC_TYPES)
 
     # Validate ordering; equal bounds require both ends inclusive
     if (upper < lower) or (upper == lower and (not inclusive_lower or not inclusive_upper)):
-        raise ValueError(
-            f"Invalid interval domain: {dom.lpar}{dom.lower}, {dom.upper}{dom.rpar}"
-        )
+        raise ValueError(f"Invalid interval domain: {dom.lpar}{dom.lower}, {dom.upper}{dom.rpar}")
 
     return DomainInterval(
         lower=lower,
@@ -76,6 +75,7 @@ def _resolve_interval(
         inclusive_lower=inclusive_lower,
         inclusive_upper=inclusive_upper,
     )
+
 
 def _coerce_set_value(v: SetLiteral, target: type[ValueLiteral] | None) -> SetLiteral:
     if target is None:
@@ -112,6 +112,7 @@ def _coerce_set_value(v: SetLiteral, target: type[ValueLiteral] | None) -> SetLi
 
     raise TypeError(f"Unsupported target type {target!r} for DomainSet")
 
+
 def _resolve_set(
     dom: DomainSetUnresolved,
     target_type: type[ValueLiteral] | None,
@@ -120,6 +121,7 @@ def _resolve_set(
     for entry in dom.entries:
         values.add(_coerce_set_value(entry, target_type))
     return DomainSet(values=values)
+
 
 def _infer_type_from_domain(
     dom: DomainIntervalUnresolved | DomainSetUnresolved,
@@ -138,6 +140,7 @@ def _infer_type_from_domain(
 
     raise TypeError("Mixed-type DomainSet not supported for inference (strings and numbers)")
 
+
 def _choose_type(
     user_type_raw: str | None,
     default: ValueLiteral,
@@ -155,23 +158,24 @@ def _choose_type(
         if inferred is float and isinstance(default, int):
             if isinstance(domain, DomainIntervalUnresolved):
                 if isinstance(domain.lower, int) and isinstance(domain.upper, int):
-                    return int  
+                    return int
             if isinstance(domain, DomainSetUnresolved):
                 if all(isinstance(v, int) for v in domain.entries):
-                    return int  
-        return inferred  
+                    return int
+        return inferred
 
     # Fall back to default literal type (preserve bool)
     if isinstance(default, bool):
-        return bool  
+        return bool
     elif isinstance(default, int):
-        return int  
+        return int
     elif isinstance(default, float):
-        return float  
+        return float
     elif isinstance(default, str):
-        return str  
+        return str
 
-    #raise TypeError(f"Unsupported default type: {type(default).__name__}")
+    # raise TypeError(f"Unsupported default type: {type(default).__name__}")
+
 
 def _coerce_default(default: ValueLiteral, target: type[ValueLiteral]) -> ValueLiteral:
     if target is bool:
@@ -184,6 +188,7 @@ def _coerce_default(default: ValueLiteral, target: type[ValueLiteral]) -> ValueL
         raise TypeError("Default must be a string for type 'str'")
     return _coerce_numeric(default, target)
 
+
 def _resolve_domain(
     domain_unres: DomainIntervalUnresolved | DomainSetUnresolved | None,
     target_type: type[ValueLiteral] | None,
@@ -194,6 +199,7 @@ def _resolve_domain(
         return _resolve_interval(domain_unres, target_type)
     else:
         return _resolve_set(domain_unres, target_type)
+
 
 def resolve_param(pu: ParamUnresolved) -> ParamResolved:
     """
@@ -208,9 +214,7 @@ def resolve_param(pu: ParamUnresolved) -> ParamResolved:
     domain_resolved = _resolve_domain(pu.domain, target_type)
 
     if domain_resolved is not None and not domain_resolved.contains(default_resolved):
-        raise ValueError(
-            f"Default value {default_resolved!r} not within the specified domain"
-        )
+        raise ValueError(f"Default value {default_resolved!r} not within the specified domain")
 
     return ParamResolved(
         name=pu.name,
@@ -219,4 +223,3 @@ def resolve_param(pu: ParamUnresolved) -> ParamResolved:
         description=pu.description,
         placeholder=pu.placeholder,
     )
-

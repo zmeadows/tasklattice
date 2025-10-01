@@ -2,26 +2,24 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from tasklattice.source import SourceSpan
-from tasklattice.template import Template
-from tasklattice.placeholder.model import  ParamResolved, Placeholder
-
-from tasklattice.core import ValueLiteral, SubstitutionMap
-
+from tasklattice.core import SubstitutionMap, ValueLiteral
+from tasklattice.placeholder.model import ParamResolved, Placeholder
 from tasklattice.profile import (
+    EscapePolicy,
     Profile,
     ProfileId,
     ProfileKind,
-    EscapePolicy,
     QuoteStyle,
     escape_json,
-    escape_yaml_double,
-    escape_yaml_single,
-    escape_toml_basic,
     escape_properties_like,
+    escape_toml_basic,
     escape_xml_attr,
     escape_xml_text,
+    escape_yaml_double,
+    escape_yaml_single,
 )
+from tasklattice.source import SourceSpan
+from tasklattice.template import Template
 
 
 def _validate_map(tpt: Template, subs: SubstitutionMap) -> None:
@@ -34,7 +32,8 @@ def _validate_map(tpt: Template, subs: SubstitutionMap) -> None:
         if not isinstance(svalue, param.py_type):
             actual_type = type(svalue)
             raise RuntimeError(
-                f"Attempted to substitute a value of type {actual_type} for parameter of type {param.py_type}"
+                f"Attempted to substitute a value of type {actual_type} "
+                "for parameter of type {param.py_type}"
             )
 
 
@@ -78,7 +77,8 @@ def _render_literal(param: ParamResolved, val: ValueLiteral) -> str:
         text = prof.bool_true if val else prof.bool_false
         if is_quoted and prof.kind is ProfileKind.TYPED and prof.warn_on_quoted_nonstring:
             print(
-                f"WARNING: Parameter '{param.name}' is a boolean inside quotes; emitting a *string* (typed scalar lost)."
+                f"WARNING: Parameter '{param.name}' is a boolean inside quotes; "
+                "emitting a *string* (typed scalar lost)."
             )
         return _emit_scalar_like(
             text,
@@ -93,7 +93,8 @@ def _render_literal(param: ParamResolved, val: ValueLiteral) -> str:
         text = str(val)
         if is_quoted and prof.kind is ProfileKind.TYPED and prof.warn_on_quoted_nonstring:
             print(
-                f"WARNING: Parameter '{param.name}' is numeric inside quotes; emitting a *string* (typed scalar lost)."
+                f"WARNING: Parameter '{param.name}' is numeric inside quotes; "
+                "emitting a *string* (typed scalar lost)."
             )
         return _emit_scalar_like(
             text,
@@ -108,7 +109,8 @@ def _render_literal(param: ParamResolved, val: ValueLiteral) -> str:
         text = _format_float(val, prof)
         if is_quoted and prof.kind is ProfileKind.TYPED and prof.warn_on_quoted_nonstring:
             print(
-                f"WARNING: Parameter '{param.name}' is numeric inside quotes; emitting a *string* (typed scalar lost)."
+                f"WARNING: Parameter '{param.name}' is numeric inside quotes; "
+                "emitting a *string* (typed scalar lost)."
             )
         return _emit_scalar_like(
             text,
@@ -129,7 +131,8 @@ def _render_literal(param: ParamResolved, val: ValueLiteral) -> str:
         and prof.yaml_string_needs_quotes(s)
     ):
         print(
-            f"WARNING: YAML string for parameter '{param.name}' looked risky unquoted; auto-quoting."
+            f"WARNING: YAML string for parameter '{param.name}' looked risky unquoted; "
+            "auto-quoting."
         )
         return _emit_string(
             s,
@@ -154,6 +157,7 @@ def _render_literal(param: ParamResolved, val: ValueLiteral) -> str:
 # ---------------------------------------------------------------------------
 # Helpers (kept local to render.py for clarity)
 # ---------------------------------------------------------------------------
+
 
 def _format_float(val: float, prof: Profile) -> str:
     fmt = prof.float_format or "g"
@@ -183,7 +187,11 @@ def _resolve_xml_context(ph: Any) -> str:
         # inside a tag
         # Try to detect an '=' between '<... ' and the left quote position
         q = getattr(ph, "quote", None)
-        qpos = int(getattr(q, "left_index", start)) if q is not None and hasattr(q, "left_index") else start
+        qpos = (
+            int(getattr(q, "left_index", start))
+            if q is not None and hasattr(q, "left_index")
+            else start
+        )
         eq = text.rfind("=", left_lt, qpos)
         if eq != -1 and text.rfind(">", eq, qpos) == -1:
             return "attr"
@@ -220,7 +228,9 @@ def _emit_string(
     # XML: escape content only; quotes (for attributes) are provided by the template
     if prof.id is ProfileId.XML:
         if xml_context == "attr":
-            prefer_apos = occ_quote_style == QuoteStyle.SINGLE if occ_quote_style is not None else False
+            prefer_apos = (
+                occ_quote_style == QuoteStyle.SINGLE if occ_quote_style is not None else False
+            )
             return escape_xml_attr(s, prefer_apos=prefer_apos)
         return escape_xml_text(s)
 
@@ -243,7 +253,11 @@ def _emit_string(
     if policy is EscapePolicy.TOML:
         content = escape_toml_basic(s)
         if occ_quote_style is None:
-            quote = QuoteStyle.DOUBLE if prof.preferred_string_quote_style == QuoteStyle.DOUBLE else QuoteStyle.SINGLE
+            quote = (
+                QuoteStyle.DOUBLE
+                if prof.preferred_string_quote_style == QuoteStyle.DOUBLE
+                else QuoteStyle.SINGLE
+            )
             return _wrap_with_quotes(content, quote)
         return content
 
@@ -267,6 +281,7 @@ def _wrap_with_quotes(content: str, quote_style: QuoteStyle) -> str:
 
 # Public API
 
+
 def render(tpt: Template, subs: SubstitutionMap) -> str:
     _validate_map(tpt, subs)
 
@@ -281,14 +296,16 @@ def render(tpt: Template, subs: SubstitutionMap) -> str:
 
     return "".join(chunks)
 
+
 @runtime_checkable
 class Renderer(Protocol):
     """Capability surface for turning a parsed Template into rendered text."""
-    def render_template(self, tpt: Template, subs: SubstitutionMap) -> str:
-        ...
+
+    def render_template(self, tpt: Template, subs: SubstitutionMap) -> str: ...
+
 
 class TLRenderer:
     """Default renderer that delegates to tasklattice.render.render()."""
+
     def render_template(self, tpt: Template, subs: SubstitutionMap) -> str:
         return render(tpt, subs)
-

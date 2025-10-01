@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, replace, fields
+import re
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, fields, replace
 from enum import StrEnum
 from pathlib import Path
-from typing import Any, Callable, Iterable, Mapping
-import re
+from typing import Any
 
 from tasklattice.core import QuoteStyle
 
@@ -17,6 +18,7 @@ various templated file formats (JSON, YAML, TOML, INI/.properties/.env, XML).
 # Enums (string-valued for nice reprs and simple comparisons)
 # ---------------------------------------------------------------------------
 
+
 class ProfileId(StrEnum):
     JSON = "json"
     YAML = "yaml"
@@ -28,9 +30,9 @@ class ProfileId(StrEnum):
 
 
 class ProfileKind(StrEnum):
-    TYPED = "typed"        # json, toml, yaml
+    TYPED = "typed"  # json, toml, yaml
     STRINGLY = "stringly"  # ini, properties, dotenv
-    XML = "xml"            # xml file; occurrence decides attr/text
+    XML = "xml"  # xml file; occurrence decides attr/text
 
 
 class EscapePolicy(StrEnum):
@@ -38,8 +40,8 @@ class EscapePolicy(StrEnum):
     YAML = "yaml"
     TOML = "toml"
     PROPERTIES = "properties"  # ini/properties/dotenv family
-    DOTENV = "dotenv"          # optional separate behavior
-    XML = "xml"                # actual escaping chosen by context
+    DOTENV = "dotenv"  # optional separate behavior
+    XML = "xml"  # actual escaping chosen by context
 
 
 # Strategy type alias (for YAML quoting heuristic)
@@ -49,6 +51,7 @@ YAMLNeedsQuotesFn = Callable[[str], bool]
 # ---------------------------------------------------------------------------
 # Profile dataclass (immutable config bag)
 # ---------------------------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class Profile:
@@ -113,7 +116,7 @@ class Profile:
     xml_prefer_apos_for_attr: bool | None = None
 
     # Convenience: immutable evolve helper for overrides
-    def evolve(self, **overrides: Any) -> "Profile":
+    def evolve(self, **overrides: Any) -> Profile:
         _validate_override_keys(Profile, overrides)
         return replace(self, **overrides)
 
@@ -142,7 +145,7 @@ def escape_json(s: str, *, ensure_ascii: bool | None = None) -> str:
         if ch == "\\":
             out.append("\\\\")
         elif ch == '"':
-            out.append('\"')
+            out.append('"')
         elif code in _CONTROL_MAP_JSON:
             out.append(_CONTROL_MAP_JSON[code])
         elif code < 0x20:
@@ -160,10 +163,9 @@ def escape_json(s: str, *, ensure_ascii: bool | None = None) -> str:
 def escape_yaml_double(s: str) -> str:
     """Escape content for YAML double-quoted style (basic subset)."""
     # YAML double-quoted has JSON-like escapes
-    return (
-        escape_json(s)  # good enough baseline for common cases
-        .replace("\x0b", "\\v")  # if present
-    )
+    return escape_json(s).replace(  # good enough baseline for common cases
+        "\x0b", "\\v"
+    )  # if present
 
 
 def escape_yaml_single(s: str) -> str:
@@ -257,6 +259,7 @@ def default_yaml_needs_quotes(s: str) -> bool:
 # ---------------------------------------------------------------------------
 # Factories (built-ins). Use overrides via dataclasses.replace for tweaks.
 # ---------------------------------------------------------------------------
+
 
 def _mk(id: ProfileId, kind: ProfileKind, **kw: Any) -> Profile:
     return Profile(id=id, kind=kind, **kw)
@@ -389,7 +392,9 @@ def make_properties_profile(overrides: Mapping[str, Any] | None = None) -> Profi
 
 
 def make_dotenv_profile(overrides: Mapping[str, Any] | None = None) -> Profile:
-    base = make_ini_profile(overrides).evolve(id=ProfileId.DOTENV, escape_policy=EscapePolicy.DOTENV)
+    base = make_ini_profile(overrides).evolve(
+        id=ProfileId.DOTENV, escape_policy=EscapePolicy.DOTENV
+    )
     return base
 
 
@@ -449,9 +454,7 @@ def _normalize_name(name: str) -> str:
 
 def _validate_custom_name(name: str) -> None:
     if name in _RESERVED_NAMES:
-        msg = (
-            f"Profile name '{name}' is reserved for built-ins; choose a different name."
-        )
+        msg = f"Profile name '{name}' is reserved for built-ins; choose a different name."
         print(msg)
         raise ValueError(msg)
     if not _NAME_RE.match(name):
@@ -469,9 +472,7 @@ def _validate_override_keys(cls: type[Profile], overrides: Mapping[str, Any] | N
     allowed = {f.name for f in fields(cls)}
     unknown = [k for k in overrides.keys() if k not in allowed]
     if unknown:
-        msg = (
-            "Unknown Profile override keys: " + ", ".join(sorted(unknown))
-        )
+        msg = "Unknown Profile override keys: " + ", ".join(sorted(unknown))
         print(msg)
         raise KeyError(msg)
 
@@ -503,15 +504,17 @@ def get_profile(name_or_id: str | ProfileId) -> Profile:
     # If it's a builtin id string, create lazily.
     try:
         pid = ProfileId(key)
-    except ValueError:
+    except ValueError as ve:
         msg = f"Unknown profile: {name_or_id!r}"
         print(msg)
-        raise KeyError(msg)
+        raise KeyError(msg) from ve
 
     return _get_or_create_builtin(pid)
 
 
-def clone_profile(new_name: str, /, *, base: str | ProfileId, overrides: Mapping[str, Any] | None = None) -> Profile:
+def clone_profile(
+    new_name: str, /, *, base: str | ProfileId, overrides: Mapping[str, Any] | None = None
+) -> Profile:
     """Create and register a custom profile by cloning an existing one.
 
     - new_name: must follow C identifier rules (case-insensitive; stored lowercase)
@@ -534,7 +537,8 @@ def clone_profile(new_name: str, /, *, base: str | ProfileId, overrides: Mapping
 
 
 def list_profiles() -> Iterable[str]:
-    """Return all available profile names currently in the registry (customs + any built-ins that were accessed), sorted."""
+    """Return all available profile names currently in the registry
+    (customs + any built-ins that were accessed), sorted."""
     return sorted(_PROFILE_REGISTRY.keys())
 
 
@@ -590,4 +594,3 @@ __all__ = [
     "infer_profile",
     "default_profile",
 ]
-

@@ -11,12 +11,11 @@
 
 from __future__ import annotations
 
+import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TypeAlias
-import os
-import re
-
 
 # ---------------------------------------------------------------------------
 # Intent-only aliases for inputs. These don’t enforce absolute/relative
@@ -38,10 +37,11 @@ UserRelPath: TypeAlias = str | os.PathLike[str]
 @dataclass(frozen=True, slots=True, init=False)
 class RelPath:
     """POSIX-style relative path (no leading '/', no '..'). Stored as a str."""
+
     value: str
 
     _DRIVE_ANCHOR = re.compile(r"^[A-Za-z]:")  # 'C:' etc.
-    _UNC_PREFIXES = ("//", "\\\\")             # UNC prefixes
+    _UNC_PREFIXES = ("//", "\\\\")  # UNC prefixes
 
     def __init__(self, p: str | os.PathLike[str]):
         s_raw = os.fspath(p)
@@ -70,7 +70,7 @@ class RelPath:
     def parts(self) -> tuple[str, ...]:
         return tuple(self.value.split("/"))
 
-    def join_under(self, base: "Path | AbsDir") -> Path:
+    def join_under(self, base: Path | AbsDir) -> Path:
         base_path = base.path if isinstance(base, AbsDir) else base
         return base_path.joinpath(*self.parts())
 
@@ -130,4 +130,3 @@ class AbsFile:
 
     def __str__(self) -> str:
         return str(self.path)
-

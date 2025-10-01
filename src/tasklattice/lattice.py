@@ -1,24 +1,19 @@
 from __future__ import annotations
 
+import hashlib
+import json
+import sys
+from abc import ABC, abstractmethod
+from collections.abc import Callable, Iterable, Iterator, Mapping, MutableMapping, Sequence
 from dataclasses import dataclass, field
 from enum import Enum
 from types import MappingProxyType
 from typing import (
-    Callable,
-    Iterable,
-    Iterator,
-    Mapping,
-    MutableMapping,
-    Sequence,
     IO,
 )
-from abc import ABC, abstractmethod
-import hashlib
-import json
-import sys
 
 # External project types (assumed to exist in your repo)
-from tasklattice.core import ParamName, ValueLiteral, SubstitutionMap
+from tasklattice.core import ParamName, SubstitutionMap, ValueLiteral
 
 """
 TaskLattice — Lattice (skeleton, v2)
@@ -28,7 +23,8 @@ Goal: build a composable sweep engine that yields a sequence of
 Template.render*(...). Rendering/validation lives elsewhere.
 
 Design principles (favor clarity over cleverness):
-- A Lattice is a *pipeline of operations* (product, zip, derive/map, filter, concat, dedup, constrained product).
+- A Lattice is a *pipeline of operations*
+    * product, zip, derive/map, filter, concat, dedup, constrained product.
 - Iteration is lazy; nothing is realized until you iterate `for subs in lattice`.
 - Operations are immutable; builder methods return a new Lattice.
 - The Lattice is template-agnostic. Validate at render-time or via a thin
@@ -48,6 +44,7 @@ This file includes:
 # Policy, helpers
 # ————————————————————————————————————————————————————————————————
 
+
 class ConflictPolicy(Enum):
     ERROR = "error"
     FIRST_WINS = "first_wins"
@@ -55,6 +52,7 @@ class ConflictPolicy(Enum):
 
 
 ParamKey = str | ParamName  # inputs can be strings for convenience
+
 
 def _to_param(p: ParamKey) -> ParamName:
     return p if isinstance(p, ParamName) else ParamName(p)
@@ -78,9 +76,7 @@ def _merge(
                 continue
             match conflict:
                 case ConflictPolicy.ERROR:
-                    raise ValueError(
-                        f"conflicting assignments for {k!r}: {base[k]!r} vs {v!r}"
-                    )
+                    raise ValueError(f"conflicting assignments for {k!r}: {base[k]!r} vs {v!r}")
                 case ConflictPolicy.FIRST_WINS:
                     # keep base[k]
                     continue
@@ -94,10 +90,10 @@ def _merge(
 # Operation protocol + concrete ops
 # ————————————————————————————————————————————————————————————————
 
+
 class _Op(ABC):
     @abstractmethod
-    def apply(self, upstream: Iterable[SubstitutionMap]) -> Iterator[SubstitutionMap]:
-        ...
+    def apply(self, upstream: Iterable[SubstitutionMap]) -> Iterator[SubstitutionMap]: ...
 
     def cardinality_factor(self) -> int | None:
         """Multiplicative factor introduced by this op if statically known.
@@ -109,8 +105,7 @@ class _Op(ABC):
         return self.__class__.__name__
 
     @abstractmethod
-    def details(self) -> str:
-        ...
+    def details(self) -> str: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -190,7 +185,7 @@ class _ZipOp(_Op):
         for u in upstream:
             for row in self.rows:
                 d: dict[ParamName, ValueLiteral] = dict(u)
-                _merge(d, dict(zip(self.columns, row)), conflict=self.conflict)
+                _merge(d, dict(zip(self.columns, row, strict=False)), conflict=self.conflict)
                 yield MappingProxyType(d)
 
     def cardinality_factor(self) -> int | None:
@@ -238,6 +233,7 @@ class _FilterOp(_Op):
 @dataclass(frozen=True, slots=True)
 class _ConcatOp(_Op):
     """Concatenate another lattice's stream after the current stream."""
+
     tail: Lattice
 
     def apply(self, upstream: Iterable[SubstitutionMap]) -> Iterator[SubstitutionMap]:
@@ -307,9 +303,7 @@ class _ConstrainedProductOp(_Op):
                 if had and old != v:
                     match self.conflict:
                         case ConflictPolicy.ERROR:
-                            raise ValueError(
-                                f"conflicting assignments for {k!r}: {old!r} vs {v!r}"
-                            )
+                            raise ValueError(f"conflicting assignments for {k!r}: {old!r} vs {v!r}")
                         case ConflictPolicy.FIRST_WINS:
                             # skip this value; keep existing binding
                             continue
@@ -340,7 +334,7 @@ class _ConstrainedProductOp(_Op):
     def details(self) -> str:
         ks = list(self.space.keys())
         lens = [len(self.space[k]) for k in ks]
-        show = ", ".join(f"{k!r}:{n}" for k, n in zip(ks[:5], lens[:5]))
+        show = ", ".join(f"{k!r}:{n}" for k, n in zip(ks[:5], lens[:5], strict=False))
         extra = "" if len(ks) <= 5 else f", … (+{len(ks)-5} more)"
         return f"space=[{show}{extra}], constraint={getattr(self.ok, '__name__', '<fn>')}"
 
@@ -348,6 +342,7 @@ class _ConstrainedProductOp(_Op):
 # ————————————————————————————————————————————————————————————————
 # Public Lattice API
 # ————————————————————————————————————————————————————————————————
+
 
 @dataclass(frozen=True, slots=True)
 class Lattice:
@@ -386,7 +381,7 @@ class Lattice:
         """Assign constant parameters to every variant (merging with conflicts)."""
         if not const:
             return self
-        norm = { _to_param(k): v for k, v in const.items() }
+        norm = {_to_param(k): v for k, v in const.items()}
         return self._append(_ConstOp(norm, self._conflict))
 
     def add_product(self, name: ParamKey, values: Sequence[ValueLiteral]) -> Lattice:
@@ -443,7 +438,7 @@ class Lattice:
         """Like a product over many params, but prunes branches via `ok(partial)`.
         Useful when constraints would invalidate many cartesian combinations.
         """
-        norm_space = { _to_param(k): list(v) for k, v in space.items() }
+        norm_space = {_to_param(k): list(v) for k, v in space.items()}
         return self._append(_ConstrainedProductOp(norm_space, ok, self._conflict))
 
     # ——— iteration / utilities ———
@@ -488,21 +483,21 @@ class Lattice:
                 break
         return count
 
-    def to_dataframe(self): # type: ignore
-        """Materialize variants into a pandas DataFrame.
-        Requires pandas; imported lazily to avoid a hard dependency.
-        """
-        try:
-            import pandas as pd
-        except Exception as e:  # pragma: no cover
-            raise RuntimeError(
-                "pandas is required for to_dataframe(); pip install pandas"
-            ) from e
-        rows = [dict(m) for m in self]
-        return pd.DataFrame.from_records(rows)
+    # def to_dataframe(self):  # type: ignore
+    #     """Materialize variants into a pandas DataFrame.
+    #     Requires pandas; imported lazily to avoid a hard dependency.
+    #     """
+    #     try:
+    #         import pandas as pd
+    #     except Exception as e:  # pragma: no cover
+    #         raise RuntimeError("pandas is required for to_dataframe(); pip install pandas") from e
+    #     rows = [dict(m) for m in self]
+    #     return pd.DataFrame.from_records(rows)
 
     # TODO(zac): Define TaskLattice version string somewhere
-    def iter_with_ids(self, *, salt: str = "tasklattice-v1") -> Iterator[tuple[str, SubstitutionMap]]:
+    def iter_with_ids(
+        self, *, salt: str = "tasklattice-v1"
+    ) -> Iterator[tuple[str, SubstitutionMap]]:
         """Yield `(variant_id, mapping)` where the id is a stable hash of the
         canonicalized mapping plus a *salt* (to allow versioning).
         Keys/values are canonicalized via sorted items and JSON with repr fallback.
@@ -541,4 +536,3 @@ class Lattice:
             print(f"  [{i:02d}] {op.brief()}  ×{cf}  {op.details()}", file=out)
         total = "?" if unknown else str(est)
         print(f"Estimated cardinality: {total}", file=out)
-

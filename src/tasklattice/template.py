@@ -15,6 +15,7 @@ Parameters: TypeAlias = Mapping[ParamName, ParamResolved]
 SequenceElement: TypeAlias = SourceSpan | ParamName
 TemplateSequence: TypeAlias = tuple[SequenceElement, ...]
 
+
 @dataclass(frozen=True, slots=True)
 class Template:
     source: Source
@@ -53,6 +54,7 @@ class Template:
             params=MappingProxyType(params),
             sequence=tuple(elements),
         )
+
 
 # @dataclass(frozen=True, slots=True)
 # class TemplateSet:

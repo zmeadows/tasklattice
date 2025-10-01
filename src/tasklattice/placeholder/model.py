@@ -10,25 +10,25 @@ from tasklattice.core import (
     ParamName,
     ValueLiteral,
 )
-
 from tasklattice.placeholder.quotes import QuoteContext, detect_quote_context
-from tasklattice.source import Source, SourceSpan
 from tasklattice.profile import Profile
+from tasklattice.source import Source, SourceSpan
 
 # Match: {{TL ...}}
-# - allows whitespace after {{ 
+# - allows whitespace after {{
 # - body INCLUDES "TL" and runs up to the first "}}"
 PLACEHOLDER_RE = re.compile(
     r"\{\{\s*(?P<body>TL\b(?:(?!\}\}).)*?)\}\}",
     re.DOTALL,
 )
 
+
 @dataclass(frozen=True, slots=True)
 class Placeholder:
     source: Source
     span_outer: SourceSpan  # includes {{…}} but not surrounding quotes/whitespace
     span_inner: SourceSpan  # includes main parameter body text (TL ...) that we actually parse
-    quote: QuoteContext | None # None if no symmetric quotes surround the placeholder
+    quote: QuoteContext | None  # None if no symmetric quotes surround the placeholder
 
     @staticmethod
     def _construct(source: Source, span_outer: SourceSpan, span_inner: SourceSpan) -> Placeholder:
@@ -76,6 +76,7 @@ class Placeholder:
         interior = self.source.slice(self.quote.interior)
         return interior.strip() == self.source.slice(self.span_outer)
 
+
 @dataclass(frozen=True, slots=True)
 class ParamUnresolved:
     name: ParamName
@@ -84,6 +85,7 @@ class ParamUnresolved:
     py_type: str | None = None
     domain: DomainIntervalUnresolved | DomainSetUnresolved | None = None
     description: str | None = None
+
 
 @dataclass(frozen=True, slots=True)
 class ParamResolved:

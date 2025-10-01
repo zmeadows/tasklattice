@@ -1,22 +1,24 @@
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from functools import partial
 from types import MappingProxyType
-from typing import Any, Mapping, Sequence, Tuple, TypeAlias
+from typing import Any, TypeAlias
 
 from tasklattice._paths import AbsDir, RelPath, UserAbsPath, UserRelPath
 
 # TODO: handle/validate expected file encodings
 # TODO: what if prototype directory gets modified during course of TaskLattice script...?
 
-UserRenderSpec: TypeAlias = UserRelPath | Tuple[UserRelPath, UserRelPath]
+UserRenderSpec: TypeAlias = UserRelPath | tuple[UserRelPath, UserRelPath]
+
 
 @dataclass(frozen=True, slots=True)
 class RenderSpec:
-    source_relpath: RelPath   # e.g., "input/config.yaml" (relative to prototype_dir)
-    target_relpath: RelPath   # default: same as relpath
+    source_relpath: RelPath  # e.g., "input/config.yaml" (relative to prototype_dir)
+    target_relpath: RelPath  # default: same as relpath
     encoding: str = "utf-8"
     mode: int = 0o644
 
@@ -39,17 +41,24 @@ class RenderSpec:
 
 class LinkMode(StrEnum):
     """How to materialize files copied from the prototype tree."""
-    COPY = "copy"         # shutil.copy2 (portable; preserves mtime/metadata)
-    SYMLINK = "symlink"   # symlink to prototype (fast; requires perms on Windows)
-    HARDLINK = "hardlink" # hardlink to prototype (fast; same filesystem only)
+
+    COPY = "copy"  # shutil.copy2 (portable; preserves mtime/metadata)
+    SYMLINK = "symlink"  # symlink to prototype (fast; requires perms on Windows)
+    HARDLINK = "hardlink"  # hardlink to prototype (fast; same filesystem only)
 
 
-_DEFAULT_EXCLUDE_GLOBS: Tuple[str, ...] = (
+_DEFAULT_EXCLUDE_GLOBS: tuple[str, ...] = (
     # safe defaults
-    ".git/**", ".hg/**", ".svn/**",
-    "__pycache__/**", ".DS_Store", "Thumbs.db",
-    ".tl/**", "._tl/**",
+    ".git/**",
+    ".hg/**",
+    ".svn/**",
+    "__pycache__/**",
+    ".DS_Store",
+    "Thumbs.db",
+    ".tl/**",
+    "._tl/**",
 )
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class RunPlan:
@@ -57,37 +66,39 @@ class RunPlan:
     runs_dir: AbsDir
     prototype_dir: AbsDir
 
-    render_files: Tuple[RenderSpec, ...]
+    render_files: tuple[RenderSpec, ...]
 
     link_mode: LinkMode
 
-    include_globs: Tuple[str, ...] # applied before exclude
-    exclude_globs: Tuple[str, ...] # safe defaults
+    include_globs: tuple[str, ...]  # applied before exclude
+    exclude_globs: tuple[str, ...]  # safe defaults
 
     # Text rendering normalization (applies only to rendered writes)
-    newline: str | None            # None = leave as produced by renderer
+    newline: str | None  # None = leave as produced by renderer
     ensure_trailing_newline: bool  # if newline is not None and missing, append
 
     # Optional post-run space reclamation (runner/util deletes after success)
-    post_run_prune_globs: Tuple[str, ...]
+    post_run_prune_globs: tuple[str, ...]
 
     # Constant provenance copied into each run's metadata (same across variations)
     meta: Mapping[str, Any]
 
-    def __init__(self,
-             name: str,
-             runs_dir: UserAbsPath,
-             prototype_dir: UserAbsPath,
-             render_files: Sequence[UserRenderSpec],
-             link_mode: LinkMode = LinkMode.COPY,
-             include_globs: Sequence[str] = ("**/*",),
-             exclude_globs: Sequence[str] = _DEFAULT_EXCLUDE_GLOBS,
-             newline: str | None = "\n",
-             ensure_trailing_newline: bool = True,
-             meta: Mapping[str, Any] | None = None):
+    def __init__(
+        self,
+        name: str,
+        runs_dir: UserAbsPath,
+        prototype_dir: UserAbsPath,
+        render_files: Sequence[UserRenderSpec],
+        link_mode: LinkMode = LinkMode.COPY,
+        include_globs: Sequence[str] = ("**/*",),
+        exclude_globs: Sequence[str] = _DEFAULT_EXCLUDE_GLOBS,
+        newline: str | None = "\n",
+        ensure_trailing_newline: bool = True,
+        meta: Mapping[str, Any] | None = None,
+    ):
         object.__setattr__(self, "name", name)
 
-        #TODO: validate/check runs_dir 
+        # TODO: validate/check runs_dir
         object.__setattr__(self, "runs_dir", AbsDir.any(runs_dir))
 
         pd = AbsDir.existing(prototype_dir)
@@ -103,7 +114,7 @@ class RunPlan:
         if dupes:
             raise ValueError(f"Duplicate render targets: {sorted(dupes)}")
 
-        #TODO: systematize/centralize names/locations of metadata folder(s)
+        # TODO: systematize/centralize names/locations of metadata folder(s)
         if any(t.startswith("_tl/") or t.startswith("._tl/") for t in targets):
             raise ValueError("Render targets may not write under reserved prefixes like '_tl/'.")
 
@@ -112,4 +123,3 @@ class RunPlan:
         object.__setattr__(self, "newline", newline)
         object.__setattr__(self, "ensure_trailing_newline", ensure_trailing_newline)
         object.__setattr__(self, "meta", MappingProxyType(dict(meta or {})))
-

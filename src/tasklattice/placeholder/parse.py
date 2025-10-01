@@ -1,19 +1,17 @@
 from ast import literal_eval
 from typing import Any, TypeAlias
 
-from lark import Lark, Tree, Token, Transformer, v_args
-
-from tasklattice.placeholder.grammar import TL_GRAMMAR
+from lark import Lark, Token, Transformer, Tree, v_args
 
 from tasklattice.core import (
-    Number,
-    SetLiteral,
-    ValueLiteral,
     DomainIntervalUnresolved,
     DomainSetUnresolved,
+    Number,
     ParamName,
+    SetLiteral,
+    ValueLiteral,
 )
-
+from tasklattice.placeholder.grammar import TL_GRAMMAR
 from tasklattice.placeholder.model import (
     ParamUnresolved,
     Placeholder,
@@ -34,7 +32,7 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
             if key in meta_pairs:
                 raise ValueError(f"duplicate key detected: {key}")
             elif key not in ALLOWED_META_LABELS:
-                raise ValueError(f"Unknown placeholder meta identifier: {key}") 
+                raise ValueError(f"Unknown placeholder meta identifier: {key}")
             meta_pairs[key] = value
 
         return ParamUnresolved(
@@ -79,12 +77,7 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
         else:
             lpar, lower, upper, rpar = items[0], items[1], items[2], items[3]
 
-        return DomainIntervalUnresolved(
-            lower=lower,
-            upper=upper,
-            lpar=lpar,
-            rpar=rpar
-        )
+        return DomainIntervalUnresolved(lower=lower, upper=upper, lpar=lpar, rpar=rpar)
 
     def type_pair(self, items: list[Any]) -> tuple[str, str]:
         return ("type", items[0])
@@ -98,6 +91,7 @@ class _TLTransformer(Transformer[Token, ParamUnresolved]):
     def pair(self, kv: list[tuple[str, Any]]) -> tuple[str, Any]:
         return kv[0]
 
+
 _PARSER = Lark(
     TL_GRAMMAR,
     start="start",
@@ -109,9 +103,11 @@ _PARSER = Lark(
 
 ParseTree: TypeAlias = Tree[Token]
 
+
 def parse_param(ph: Placeholder) -> ParamUnresolved:
     tree: ParseTree = _PARSER.parse(ph.text)
     return _TLTransformer(ph).transform(tree)
+
 
 def parse_param_str(ph_str: str) -> ParamUnresolved:
     ph = Placeholder.from_string(ph_str)

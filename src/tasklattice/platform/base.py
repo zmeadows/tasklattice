@@ -1,8 +1,10 @@
 from __future__ import annotations
-from typing import Any, ClassVar, Literal, Protocol, overload
+
 import subprocess
+from typing import Any, ClassVar, Literal, Protocol, overload
 
 TerminationMode = Literal["soft", "hard"]
+
 
 class PlatformOps(Protocol):
     name: ClassVar[Literal["posix", "nt"]]
@@ -14,6 +16,9 @@ class PlatformOps(Protocol):
     @overload
     def terminate_tree_by(self, proc_or_pid: int, mode: TerminationMode) -> None: ...
     @overload
-    def terminate_tree_by(self, proc_or_pid: subprocess.Popen[Any], mode: TerminationMode) -> None: ...
-    def terminate_tree_by(self, proc_or_pid: int | subprocess.Popen[Any], mode: TerminationMode) -> None: ...
-
+    def terminate_tree_by(
+        self, proc_or_pid: subprocess.Popen[Any], mode: TerminationMode
+    ) -> None: ...
+    def terminate_tree_by(
+        self, proc_or_pid: int | subprocess.Popen[Any], mode: TerminationMode
+    ) -> None: ...

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from typing import Any, ClassVar, Literal
 import os
 import signal
 import subprocess
+from typing import Any, ClassVar, Literal
 
 from .base import PlatformOps, TerminationMode
 
 
 class _Posix(PlatformOps):
-    name: ClassVar[Literal["posix","nt"]] = "posix"
+    name: ClassVar[Literal["posix", "nt"]] = "posix"
 
     def configure_popen_group(self, popen_kwargs: dict[str, Any]) -> None:
         popen_kwargs["start_new_session"] = True
@@ -46,8 +46,12 @@ class _Posix(PlatformOps):
 
         return sent
 
-    def terminate_tree_by(self, proc_or_pid: int | subprocess.Popen[Any], mode: TerminationMode) -> None:
-        target_pid = proc_or_pid.pid if isinstance(proc_or_pid, subprocess.Popen) else int(proc_or_pid)
+    def terminate_tree_by(
+        self, proc_or_pid: int | subprocess.Popen[Any], mode: TerminationMode
+    ) -> None:
+        target_pid = (
+            proc_or_pid.pid if isinstance(proc_or_pid, subprocess.Popen) else int(proc_or_pid)
+        )
         sig = signal.SIGTERM if mode == "soft" else signal.SIGKILL
 
         try:
@@ -61,4 +65,3 @@ class _Posix(PlatformOps):
 
 
 platform_impl: PlatformOps = _Posix()
-

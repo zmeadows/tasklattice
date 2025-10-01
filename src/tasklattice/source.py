@@ -5,7 +5,8 @@ from os import PathLike
 from pathlib import Path
 from typing import SupportsIndex
 
-from tasklattice.profile import Profile, infer_profile, default_profile
+from tasklattice.profile import Profile, default_profile, infer_profile
+
 
 @dataclass(frozen=True, order=True, slots=True)
 class SourceIndex:
@@ -26,11 +27,13 @@ class SourceIndex:
     def distance(self, other: SourceIndex) -> int:
         return self.pos - other.pos
 
+
 @dataclass(frozen=True, slots=True)
 class SourceSpan:
-    '''0-indexed, [start, end) half-open interval for internal slicing.'''
+    """0-indexed, [start, end) half-open interval for internal slicing."""
+
     start: SourceIndex  # inclusive
-    end: SourceIndex    # exclusive
+    end: SourceIndex  # exclusive
 
     def __post_init__(self) -> None:
         if self.start < SourceIndex(0):
@@ -42,6 +45,7 @@ class SourceSpan:
     def from_ints(cls, start: int, end: int) -> SourceSpan:
         return cls(SourceIndex(start), SourceIndex(end))
 
+
 def _compute_line_starts(s: str) -> tuple[SourceIndex, ...]:
     # Start of each line (1st line starts at 0). Handles \n, \r\n, \r via splitlines.
     starts = [SourceIndex(0)]
@@ -51,9 +55,10 @@ def _compute_line_starts(s: str) -> tuple[SourceIndex, ...]:
         starts.append(SourceIndex(pos))
     return tuple(starts)
 
+
 @dataclass(frozen=True, slots=True)
 class Source:
-    file: Path | None #TODO: rename 'path'
+    file: Path | None  # TODO: rename 'path'
     contents: str
     profile: Profile
 
@@ -71,9 +76,7 @@ class Source:
     @staticmethod
     def from_string(text: str, profile: Profile | None = None) -> Source:
         return Source(
-            file=None,
-            contents=text,
-            profile=profile if profile is not None else default_profile()
+            file=None, contents=text, profile=profile if profile is not None else default_profile()
         )
 
     @staticmethod
@@ -105,7 +108,7 @@ class Source:
     def slice(self, span: SourceSpan) -> str:
         if not (0 <= int(span.start) <= int(span.end) <= len(self.contents)):
             raise ValueError("SourceSpan out of bounds for this Source")
-        return self.contents[int(span.start):int(span.end)]
+        return self.contents[int(span.start) : int(span.end)]
 
     @property
     def line_starts(self) -> tuple[SourceIndex, ...]:
@@ -117,11 +120,11 @@ class Source:
         return ls
 
     def pos_to_line_col(self, pos: SourceIndex) -> tuple[int, int]:
-        '''returns 1-indexed (line, col), editor-style; accepts pos==len(contents).'''
+        """returns 1-indexed (line, col), editor-style; accepts pos==len(contents)."""
         if not (0 <= int(pos) <= len(self.contents)):
             raise ValueError(f"pos {pos} out of range [0, {len(self.contents)}]")
         import bisect
+
         ls = self.line_starts
         line_idx = bisect.bisect_right(ls, pos) - 1
         return (line_idx + 1, int(pos) - int(ls[line_idx]) + 1)  # 1-indexed
-

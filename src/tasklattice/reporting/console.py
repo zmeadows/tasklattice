@@ -12,15 +12,14 @@ import contextvars
 import functools
 import os
 import sys
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator
 
 from rich.console import Console
 
 from tasklattice.errors import TLException
 from tasklattice.reporting.diagnostics import Emitter
 from tasklattice.reporting.warnings_bridge import install_warnings_bridge
-
 
 __all__ = ["use_diagnostics", "print_exception", "run_with_diagnostics"]
 
@@ -48,7 +47,7 @@ def use_diagnostics(
 
     Behavior:
       - pretty='auto' → install bridge only if a TTY is attached.
-      - pretty=True   → always install bridge (Rich still disables color if not a TTY unless forced).
+      - pretty=True   → always install bridge (Rich still disables color unless forced).
       - pretty=False  → never install bridge.
     """
     color = (color or os.getenv("TASKLATTICE_COLOR") or "auto").lower()
@@ -82,10 +81,10 @@ def use_diagnostics(
 
 def print_exception(e: TLException) -> None:
     """Pretty-print a TLException; uses the active Console if available."""
-    ( _active_console.get() or Console(stderr=True) ).print(e)
+    (_active_console.get() or Console(stderr=True)).print(e)
 
 
-def run_with_diagnostics( # type: ignore
+def run_with_diagnostics(  # type: ignore
     *,
     color: str | None = None,
     pretty: bool | str | None = None,
@@ -96,17 +95,19 @@ def run_with_diagnostics( # type: ignore
     Decorator: runs the function inside `use_diagnostics(...)`.
     If a TLException escapes, pretty-print it and (by default) exit 2.
     """
-    def deco(fn): # type: ignore
+
+    def deco(fn):  # type: ignore
         @functools.wraps(fn)
-        def wrapper(*args, **kwargs): # type: ignore
+        def wrapper(*args, **kwargs):  # type: ignore
             with use_diagnostics(color=color, pretty=pretty, only_tasklattice=only_tasklattice):
                 try:
                     return fn(*args, **kwargs)
                 except TLException as e:
                     print_exception(e)
                     if exit_on_exception:
-                        raise SystemExit(2)
+                        raise SystemExit(2) from e
                     raise
-        return wrapper
-    return deco
 
+        return wrapper
+
+    return deco

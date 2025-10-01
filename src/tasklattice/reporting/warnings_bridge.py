@@ -8,13 +8,13 @@ Do NOT install this at import time. Let scripts/CLIs opt in.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable, TextIO
+from typing import TextIO
 
 from rich.console import Console
 
 from tasklattice.reporting.diagnostics import Diagnostic, Emitter
-
 
 __all__ = [
     "TLWarning",
@@ -26,6 +26,7 @@ __all__ = [
 
 
 # ─────────── Warning categories (parity with exceptions) ───────────
+
 
 class TLWarning(Warning):
     """Base TaskLattice warning category."""
@@ -45,6 +46,7 @@ class DiagnosticWarning(TLWarning):
     A warning carrying a Diagnostic. Works fine without the bridge (plain text via __str__),
     and pretty-prints when the bridge is installed.
     """
+
     diagnostic: Diagnostic
 
     def __str__(self) -> str:  # pragma: no cover - trivial formatting
@@ -57,6 +59,7 @@ class DiagnosticWarning(TLWarning):
 
 
 # ─────────── Opt-in bridge (TaskLattice-only by default) ───────────
+
 
 def install_warnings_bridge(
     *,
@@ -95,4 +98,3 @@ def install_warnings_bridge(
         warnings.showwarning = prev_showwarning
 
     return uninstall
-

@@ -5,17 +5,16 @@ and a lightweight Emitter. Designed to be used by both warnings and exceptions.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Iterable, Sequence
 
-from rich.console import Console, RenderableType, Group
+from rich.console import Console, Group, RenderableType
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.text import Text
 
 from tasklattice.source import Source, SourceIndex, SourceSpan
-
 
 __all__ = [
     "Severity",
@@ -32,6 +31,7 @@ __all__ = [
 
 
 # ────────────────────────── Core model ──────────────────────────
+
 
 class Severity(StrEnum):
     INFO = "info"
@@ -59,6 +59,7 @@ class Diagnostic:
 
 
 # ─────────────────────── Rendering config/theme ───────────────────────
+
 
 @dataclass(frozen=True, slots=True)
 class FrameConfig:
@@ -91,6 +92,7 @@ def _sev_style(sev: Severity, theme: Theme) -> str:
 
 # ────────────────────────── Line/column helpers ──────────────────────────
 
+
 def _expand_tabs(s: str, tabw: int) -> str:
     return s.expandtabs(tabw)
 
@@ -111,7 +113,9 @@ def _line_bounds(line_starts: Sequence[SourceIndex], i1: int, text_len: int) -> 
     return start, end
 
 
-def _context_window(source: Source, start_line: int, end_line: int, cfg: FrameConfig) -> tuple[int, int]:
+def _context_window(
+    source: Source, start_line: int, end_line: int, cfg: FrameConfig
+) -> tuple[int, int]:
     # `line_starts` includes a sentinel at len(contents); last real line is len-1
     max_line = max(1, len(source.line_starts) - 1)
     lo = max(1, start_line - cfg.context_lines)
@@ -133,6 +137,7 @@ def _source_label(source: Source) -> str:
 
 # ────────────────────────── Frame builder ──────────────────────────
 
+
 def _build_code_frame(
     source: Source,
     span: SourceSpan,
@@ -145,7 +150,7 @@ def _build_code_frame(
     """
     text = source.contents
     s_line, s_col = source.pos_to_line_col(span.start)  # 1-indexed
-    e_line, e_col = source.pos_to_line_col(span.end)    # 1-indexed (end-exclusive)
+    e_line, e_col = source.pos_to_line_col(span.end)  # 1-indexed (end-exclusive)
 
     lo_line, hi_line = _context_window(source, s_line, e_line, cfg)
 
@@ -183,7 +188,9 @@ def _build_code_frame(
             end_disp_col = len(disp_line) + 1
 
         caret_w = max(1, end_disp_col - start_disp_col)
-        prefix_spaces = " " * (gutter_w + (3 if cfg.show_line_numbers else 0) + (start_disp_col - 1))
+        prefix_spaces = " " * (
+            gutter_w + (3 if cfg.show_line_numbers else 0) + (start_disp_col - 1)
+        )
         caret = Text(prefix_spaces)
         caret.append("^" * caret_w, style=theme.caret)
         lines.append(caret)
@@ -227,7 +234,9 @@ def render_diagnostic(
             rel_blocks.extend([rel_head, rel_frame])
         omitted = len(d.related) - len(rel)
         if omitted > 0:
-            rel_blocks.append(Text(f"... and {omitted} more related locations", style=theme.line_no))
+            rel_blocks.append(
+                Text(f"... and {omitted} more related locations", style=theme.line_no)
+            )
 
     trailer = Text()
     for n in d.notes:
@@ -243,18 +252,25 @@ def render_diagnostic(
         Rule(style=_sev_style(d.severity, theme)),
         main,
         *rel_blocks,
-        *( [trailer] if trailer.plain else [] ),
+        *([trailer] if trailer.plain else []),
     )
 
 
 # ────────────────────────── Emitter (opt-in) ──────────────────────────
+
 
 class Emitter:
     """
     Lightweight printer for diagnostics. You can create ad-hoc instances,
     or use the module-level helpers below.
     """
-    def __init__(self, console: Console | None = None, theme: Theme | None = None, cfg: FrameConfig | None = None):
+
+    def __init__(
+        self,
+        console: Console | None = None,
+        theme: Theme | None = None,
+        cfg: FrameConfig | None = None,
+    ):
         self.console = console or Console()
         self.theme = theme or Theme()
         self.cfg = cfg or FrameConfig()
@@ -347,4 +363,3 @@ def warn(*a, **k):  # type: ignore[no-untyped-def]
 
 def error(*a, **k):  # type: ignore[no-untyped-def]
     _default_emitter.error(*a, **k)
-
