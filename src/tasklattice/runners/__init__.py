@@ -6,19 +6,20 @@ Unified import surface + tiny registry.
 """
 
 from __future__ import annotations
+
 from importlib import import_module
 
 from tasklattice.runners.base import (
-    Runner,
-    RunHandle,
-    RunStatus,
     TERMINAL_STATES,
-    Resources,
     LaunchSpec,
     LaunchSpecFactory,
+    Resources,
+    RunHandle,
+    Runner,
+    RunStatus,
     UserLaunchInput,
-    ensure_launchspec,
     ensure_launch_factory,
+    ensure_launchspec,
     validate_spec_common,
 )
 
@@ -26,7 +27,8 @@ _REGISTRY: dict[str, str] = {
     "local": "tasklattice.runners.local:LocalRunner",
 }
 
-def resolve_runner(name: str, **kwargs) -> Runner: # type: ignore
+
+def resolve_runner(name: str, **kwargs) -> Runner:  # type: ignore
     """
     Instantiate a runner by registry name. Intended for internal use by higher-level code.
 
@@ -40,6 +42,7 @@ def resolve_runner(name: str, **kwargs) -> Runner: # type: ignore
     mod_name, cls_name = target.split(":")
     cls = getattr(import_module(mod_name), cls_name)
     return cls(**kwargs)  # type: ignore
+
 
 __all__ = [
     "Runner",
@@ -55,4 +58,3 @@ __all__ = [
     "validate_spec_common",
     "resolve_runner",
 ]
-
