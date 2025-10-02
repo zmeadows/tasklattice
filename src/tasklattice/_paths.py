@@ -85,8 +85,8 @@ class RelPath:
 class AbsDir:
     path: Path
 
-    @classmethod
-    def existing(cls, p: UserAbsPath, *, expand_user: bool = True) -> AbsDir:
+    @staticmethod
+    def existing(p: UserAbsPath, *, expand_user: bool = True) -> AbsDir:
         q = Path(os.fspath(p))
         if expand_user:
             q = q.expanduser()
@@ -94,12 +94,12 @@ class AbsDir:
             raise FileNotFoundError(q)
         if not q.is_dir():
             raise NotADirectoryError(q)
-        return cls(q)
+        return AbsDir(q)
 
-    @classmethod
-    def any(cls, p: UserAbsPath, *, expand_user: bool = True) -> AbsDir:
+    @staticmethod
+    def any(p: UserAbsPath, *, expand_user: bool = True) -> AbsDir:
         q = Path(os.fspath(p))
-        return cls(q.expanduser() if expand_user else q)
+        return AbsDir(q.expanduser() if expand_user else q)
 
     # Interop: allow passing to APIs that accept PathLike
     def __fspath__(self) -> str:
