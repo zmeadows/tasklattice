@@ -58,7 +58,7 @@ def _compute_line_starts(s: str) -> tuple[SourceIndex, ...]:
 
 @dataclass(frozen=True, slots=True)
 class Source:
-    file: Path | None  # TODO: rename 'path'
+    path: Path | None  # TODO: rename 'path'
     contents: str
     profile: Profile
 
@@ -68,15 +68,15 @@ class Source:
 
     def __post_init__(self) -> None:
         if len(self.contents) == 0:
-            if self.file is not None:
-                raise ValueError(f"Empty file encountered: {self.file}.")
+            if self.path is not None:
+                raise ValueError(f"Empty file encountered: {self.path}.")
             else:
                 raise ValueError("Empty source contents given.")
 
     @staticmethod
     def from_string(text: str, profile: Profile | None = None) -> Source:
         return Source(
-            file=None, contents=text, profile=profile if profile is not None else default_profile()
+            path=None, contents=text, profile=profile if profile is not None else default_profile()
         )
 
     @staticmethod
