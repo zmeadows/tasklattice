@@ -7,7 +7,7 @@ ruff_cache/
 pytest_cache/
 .envrc
 .graveyard
-scratch
+.scratch
 *.egg
 *.egg-info/
 *.tar.gz*
