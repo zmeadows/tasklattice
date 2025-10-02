@@ -20,7 +20,6 @@ ValueLiteral: TypeAlias = str | Number | bool
 SetLiteral: TypeAlias = str | Number
 
 
-# TODO: rename
 def type_str_to_type_python(type_str: str) -> type[ValueLiteral] | None:
     TYPE_MAP = {
         "str": str,

@@ -63,7 +63,7 @@ _DEFAULT_EXCLUDE_GLOBS: tuple[str, ...] = (
 @dataclass(frozen=True, slots=True, init=False)
 class RunPlan:
     name: str
-    runs_dir: AbsDir
+    runs_root: AbsDir
     prototype_dir: AbsDir
 
     render_files: tuple[RenderSpec, ...]
@@ -86,7 +86,7 @@ class RunPlan:
     def __init__(
         self,
         name: str,
-        runs_dir: UserAbsPath,
+        runs_root: UserAbsPath,
         prototype_dir: UserAbsPath,
         render_files: Sequence[UserRenderSpec],
         link_mode: LinkMode = LinkMode.COPY,
@@ -98,8 +98,8 @@ class RunPlan:
     ):
         object.__setattr__(self, "name", name)
 
-        # TODO: validate/check runs_dir
-        object.__setattr__(self, "runs_dir", AbsDir.any(runs_dir))
+        # TODO: validate/check runs_root
+        object.__setattr__(self, "runs_root", AbsDir.any(runs_root))
 
         pd = AbsDir.existing(prototype_dir)
         object.__setattr__(self, "prototype_dir", pd)

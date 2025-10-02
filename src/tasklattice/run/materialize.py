@@ -275,7 +275,7 @@ class Materializer:
         subs_fp = _subs_fingerprint(subs)
         run_id = _make_run_id(plan_fp, subs_fp)
 
-        runs_root: Path = self.plan.runs_dir.path
+        runs_root: Path = self.plan.runs_root.path
         final_dir = self.staging.final_dir(runs_root, run_id)
         if final_dir.exists():
             # You can switch to "reuse" or "nuke & recreate" later if you prefer.

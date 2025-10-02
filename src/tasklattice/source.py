@@ -58,7 +58,7 @@ def _compute_line_starts(s: str) -> tuple[SourceIndex, ...]:
 
 @dataclass(frozen=True, slots=True)
 class Source:
-    path: Path | None  # TODO: rename 'path'
+    path: Path | None
     contents: str
     profile: Profile
 
