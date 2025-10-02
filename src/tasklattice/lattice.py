@@ -494,10 +494,7 @@ class Lattice:
     #     rows = [dict(m) for m in self]
     #     return pd.DataFrame.from_records(rows)
 
-    # TODO(zac): Define TaskLattice version string somewhere
-    def iter_with_ids(
-        self, *, salt: str = "tasklattice-v1"
-    ) -> Iterator[tuple[str, SubstitutionMap]]:
+    def iter_with_ids(self) -> Iterator[tuple[str, SubstitutionMap]]:
         """Yield `(variant_id, mapping)` where the id is a stable hash of the
         canonicalized mapping plus a *salt* (to allow versioning).
         Keys/values are canonicalized via sorted items and JSON with repr fallback.
@@ -510,6 +507,10 @@ class Lattice:
             except Exception:
                 payload = repr(tuple(sorted((repr(k), repr(v)) for k, v in m.items())))
             h = hashlib.blake2b(digest_size=16)
+
+            # TODO(@zmeadows): "we should detect major version mismatches and warn/inform user
+            salt = ""
+
             h.update(salt.encode("utf-8"))
             h.update(payload.encode("utf-8"))
             yield (h.hexdigest(), m)

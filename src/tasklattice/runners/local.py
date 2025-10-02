@@ -47,11 +47,13 @@ from tasklattice.constants import (
 from tasklattice.platform import platform
 from tasklattice.run.materialize import RunMaterialized
 from tasklattice.run.state import (
+    TERMINAL_STATES,
     RunStatus,
-    append_event,
+    append_runstate_event,
     read_runstate,
     spec_to_jsonable,
-    write_runstate_atomic,
+    update_runstate,
+    write_runstate,
 )
 from tasklattice.runners.base import (
     LaunchSpec,
@@ -63,7 +65,7 @@ from tasklattice.runners.base import (
     validate_spec_common,
 )
 from tasklattice.utils.fs_utils import ensure_parent_dirs
-from tasklattice.utils.json_utils import json_atomic_write, json_load
+from tasklattice.utils.json_utils import json_load
 from tasklattice.utils.time_utils import now_iso
 
 # -----------------------------------------------------------------------------
@@ -416,15 +418,13 @@ class LocalRunner(Runner):
             self.validate_spec(effective_spec, run_dir=run_dir)
 
             # Record queued state
-            queued_at = now_iso()
-            state_path = runstate_path(run_dir)
             payload = {
                 "schema": RUNSTATE_SCHEMA,
                 "runner": self.name,
                 "run_id": run_id,
                 "attempt": attempt,
                 "state": RunStatus.QUEUED,
-                "submitted_at": queued_at,
+                "submitted_at": now_iso(),
                 "started_at": None,
                 "finished_at": None,
                 "external_id": None,
@@ -432,8 +432,8 @@ class LocalRunner(Runner):
                 "launch_spec": spec_to_jsonable(effective_spec, run_dir=run_dir),
                 "events": [],
             }
-            json_atomic_write(state_path, payload)
-            append_event(run_dir, state=RunStatus.QUEUED, reason="submit")
+            write_runstate(run_dir, payload)
+            append_runstate_event(run_dir, state=RunStatus.QUEUED, reason="submit")
 
         # Construct handle
         handle = _LocalRunHandle(self, run_id, run_dir, None, stdout_p, stderr_p)
@@ -457,12 +457,16 @@ class LocalRunner(Runner):
                 except Exception as exc:
                     # Mark FAILED with finished_at and a spawn event, then re-raise.
                     with run_lock:
-                        doc = read_runstate(run_dir)
-                        doc["state"] = RunStatus.FAILED
-                        doc["finished_at"] = now_iso()
-                        doc["return_code"] = None
-                        write_runstate_atomic(run_dir, doc)
-                        append_event(
+                        update_runstate(
+                            run_dir,
+                            {
+                                "state": RunStatus.FAILED,
+                                "finished_at": now_iso(),
+                                "return_code": None,
+                            },
+                        )
+
+                        append_runstate_event(
                             run_dir,
                             state=RunStatus.FAILED,
                             reason=f"spawn failed: {exc!s}",
@@ -563,18 +567,14 @@ class LocalRunner(Runner):
         Used when we detect a stale RUNNING state but the PID is gone, or after
         a PID-based termination where we cannot retrieve a return code.
         """
-        run_lock = self._get_run_lock(run_dir)
-        with run_lock:
-            path = runstate_path(run_dir)
-            doc = json_load(path) or {}
+
+        with self._get_run_lock(run_dir):
+            doc = read_runstate(run_dir)
+
             cur = _as_status(doc.get("state"))
-            if cur in {
-                RunStatus.SUCCEEDED,
-                RunStatus.FAILED,
-                RunStatus.CANCELLED,
-                RunStatus.TIMED_OUT,
-            }:
+            if cur in TERMINAL_STATES:
                 return
+
             doc["state"] = state
             doc["finished_at"] = now_iso()
             # keep existing return_code if set; else None
@@ -583,8 +583,9 @@ class LocalRunner(Runner):
             # advisory flags
             doc["finalized_by_attach"] = True
             doc["reason"] = reason
-            json_atomic_write(path, doc)
-            append_event(run_dir, state=state, reason=reason)
+
+            write_runstate(run_dir, doc)
+            append_runstate_event(run_dir, state=state, reason=reason)
 
     def _cancel_attached(
         self, run_dir: Path, *, handle: _LocalRunHandle, grace_s: float | None = None, force: bool
@@ -593,14 +594,11 @@ class LocalRunner(Runner):
         lock = self._get_run_lock(run_dir)
         with lock:
             doc = json_load(runstate_path(run_dir)) or {}
+
             state = _as_status(doc.get("state"))
-            if state in {
-                RunStatus.SUCCEEDED,
-                RunStatus.FAILED,
-                RunStatus.CANCELLED,
-                RunStatus.TIMED_OUT,
-            }:
+            if state in TERMINAL_STATES:
                 return
+
             if state != RunStatus.RUNNING:
                 # Not running; treat as queued or unknown → mark cancelled.
                 self._finalize_unknown_exit(
@@ -645,13 +643,14 @@ class LocalRunner(Runner):
 
         # Mark cancelled in run.json
         with record.lock:
-            path = runstate_path(run_dir)
-            doc = json_load(path) or {}
-            doc["state"] = RunStatus.CANCELLED
-            doc["finished_at"] = now_iso()
-            doc["return_code"] = None
-            json_atomic_write(path, doc)
-            append_event(run_dir, state=RunStatus.CANCELLED, reason="cancelled while queued")
+            update_runstate(
+                run_dir,
+                {"state": RunStatus.CANCELLED, "finished_at": now_iso(), "return_code": None},
+            )
+
+            append_runstate_event(
+                run_dir, state=RunStatus.CANCELLED, reason="cancelled while queued"
+            )
 
         handle._finished_evt.set()
 
@@ -735,7 +734,7 @@ class LocalRunner(Runner):
                     ):
                         rec.handle._timed_out = True
                         _terminate_with_grace(proc)
-                        append_event(run_dir, state=RunStatus.TIMED_OUT, reason="timeout")
+                        append_runstate_event(run_dir, state=RunStatus.TIMED_OUT, reason="timeout")
                         rec.deadline_monotonic = None  # prevent repeated signaling
 
                     # Finalization on process exit
@@ -749,17 +748,16 @@ class LocalRunner(Runner):
                         else:
                             final_state = RunStatus.SUCCEEDED if rc == 0 else RunStatus.FAILED
 
-                        path = runstate_path(run_dir)
-                        doc = json_load(path) or {}
-                        doc.update(
+                        update_runstate(
+                            run_dir,
                             {
                                 "state": final_state,
                                 "finished_at": finished_at,
                                 "return_code": rc,
-                            }
+                            },
                         )
-                        json_atomic_write(path, doc)
-                        append_event(run_dir, state=final_state, reason="process exited")
+
+                        append_runstate_event(run_dir, state=final_state, reason="process exited")
 
                         rec.handle._finished_evt.set()
                         to_remove.append(run_dir)
@@ -782,19 +780,23 @@ class LocalRunner(Runner):
                     except Exception as exc:
                         # Mark FAILED and continue to next pending
                         with item.lock:
-                            path = runstate_path(item.run_dir)
-                            doc = json_load(path) or {}
-                            doc["state"] = RunStatus.FAILED
-                            doc["finished_at"] = now_iso()
-                            doc["return_code"] = None
-                            json_atomic_write(path, doc)
-                            append_event(
+                            update_runstate(
+                                item.run_dir,
+                                {
+                                    "state": RunStatus.FAILED,
+                                    "finished_at": now_iso(),
+                                    "return_code": None,
+                                },
+                            )
+
+                            append_runstate_event(
                                 item.run_dir,
                                 state=RunStatus.FAILED,
                                 reason=f"spawn failed: {exc!s}",
                             )
-                        item.handle._finished_evt.set()
-                        # don't re-raise from monitor loop
+
+                            item.handle._finished_evt.set()
+                            # don't re-raise from monitor loop
 
             # 3) Sleep until something changes or a deadline approaches.
             # If nothing is active or pending, wait indefinitely for a notification.
@@ -862,14 +864,14 @@ class LocalRunner(Runner):
 
         # Mark running
         with run_lock:
-            started_at = now_iso()
-            path = runstate_path(run_dir)
-            doc = json_load(path) or {}
-            doc["state"] = RunStatus.RUNNING
-            doc["started_at"] = started_at
-            doc["external_id"] = str(proc.pid)
-            json_atomic_write(path, doc)
-            append_event(run_dir, state=RunStatus.RUNNING, reason=f"spawned pid {proc.pid}")
+            update_runstate(
+                run_dir,
+                {"state": RunStatus.RUNNING, "started_at": now_iso(), "external_id": str(proc.pid)},
+            )
+
+            append_runstate_event(
+                run_dir, state=RunStatus.RUNNING, reason=f"spawned pid {proc.pid}"
+            )
 
         # Update handle & register
         record.handle._proc = proc

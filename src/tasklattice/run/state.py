@@ -26,11 +26,17 @@ def read_runstate(run_dir: Path) -> dict[str, Any]:
     return json_load(runstate_path(run_dir)) or {}
 
 
-def write_runstate_atomic(run_dir: Path, doc: dict[str, Any]) -> None:
+def write_runstate(run_dir: Path, doc: dict[str, Any]) -> None:
     json_atomic_write(runstate_path(run_dir), doc)
 
 
-def append_event(run_dir: Path, *, state: str, reason: str) -> None:
+def update_runstate(run_dir: Path, updates: dict[str, Any]) -> None:
+    doc = read_runstate(run_dir)
+    doc.update(updates)
+    write_runstate(run_dir, doc)
+
+
+def append_runstate_event(run_dir: Path, *, state: str, reason: str) -> None:
     """
     Single path to append an event to run.json. If/when we add trimming, do it here.
     """
@@ -39,7 +45,7 @@ def append_event(run_dir: Path, *, state: str, reason: str) -> None:
     ev.append({"timestamp": now_iso(), "state": state, "reason": reason})
     # TODO: If we ever want to trim: ev = ev[-MAX_EVENTS:]
     doc["events"] = ev
-    write_runstate_atomic(run_dir, doc)
+    write_runstate(run_dir, doc)
 
 
 def spec_to_jsonable(spec: LaunchSpec, *, run_dir: Path) -> dict[str, Any]:

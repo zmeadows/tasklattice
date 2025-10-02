@@ -22,8 +22,8 @@ STDERR_BASENAME = "stderr.log"
 
 # ---- schema versions ---------------------------------------------------------
 
-INPUTS_SCHEMA = 1  # version of the inputs.json format
-RUNSTATE_SCHEMA = 1  # version of the run.json format
+INPUTS_SCHEMA = 0  # version of the inputs.json format
+RUNSTATE_SCHEMA = 0  # version of the run.json format
 
 # ---- helpers ----------------------------------------------------------------
 
