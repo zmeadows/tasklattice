@@ -8,6 +8,7 @@ from types import MappingProxyType
 from typing import Any, TypeAlias
 
 from tasklattice._paths import AbsDir, RelPath, UserAbsPath, UserRelPath
+from tasklattice.constants import RUN_METADATA_DIR
 
 # TODO: handle/validate expected file encodings
 # TODO: what if prototype directory gets modified during course of TaskLattice script...?
@@ -55,8 +56,7 @@ _DEFAULT_EXCLUDE_GLOBS: tuple[str, ...] = (
     "__pycache__/**",
     ".DS_Store",
     "Thumbs.db",
-    ".tl/**",
-    "._tl/**",
+    "." + RUN_METADATA_DIR + "/**",
 )
 
 
@@ -115,8 +115,10 @@ class RunPlan:
             raise ValueError(f"Duplicate render targets: {sorted(dupes)}")
 
         # TODO: systematize/centralize names/locations of metadata folder(s)
-        if any(t.startswith("_tl/") or t.startswith("._tl/") for t in targets):
-            raise ValueError("Render targets may not write under reserved prefixes like '_tl/'.")
+        if any(t.startswith(RUN_METADATA_DIR) for t in targets):
+            raise ValueError(
+                f"Render targets may not write under the reserved prefix: {RUN_METADATA_DIR}"
+            )
 
         object.__setattr__(self, "include_globs", tuple(include_globs))
         object.__setattr__(self, "exclude_globs", tuple(exclude_globs))
