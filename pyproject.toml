@@ -12,8 +12,8 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/your-org/tasklattice"
-Repository = "https://github.com/your-org/tasklattice"
+Homepage = "https://github.com/zmeadows/tasklattice"
+Repository = "https://github.com/zmeadows/tasklattice"
 
 [project.optional-dependencies]
 # local development & CI
