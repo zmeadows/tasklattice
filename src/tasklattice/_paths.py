@@ -15,14 +15,14 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TypeAlias
+from typing import Self, TypeAlias
 
 # ---------------------------------------------------------------------------
 # Intent-only aliases for inputs. These don’t enforce absolute/relative
 # at type-check time; constructors below do the runtime validation.
 # ---------------------------------------------------------------------------
-UserAbsPath: TypeAlias = str | os.PathLike[str]
-UserRelPath: TypeAlias = str | os.PathLike[str]
+# TODO(@zmeadows): consolidate these to one UserPath
+UserPath: TypeAlias = str | os.PathLike[str]
 
 
 # ---------------------------------------------------------------------------
@@ -76,30 +76,40 @@ class RelPath:
 
 
 # ---------------------------------------------------------------------------
-# AbsDir: normalized directory path.
-# Use factories to control validation:
-#   - AbsDir.existing(...)  -> must exist & be a directory
-#   - AbsDir.any(...)       -> normalized path (may not exist yet)
+# AbsDir: absolute, normalized directory path.
+#   - AbsDir.existing(...)   -> must exist & be a directory
+#   - AbsDir.normalized(...) -> normalized path (may not exist yet)
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True, slots=True)
 class AbsDir:
     path: Path
 
-    @staticmethod
-    def existing(p: UserAbsPath, *, expand_user: bool = True) -> AbsDir:
-        q = Path(os.fspath(p))
-        if expand_user:
-            q = q.expanduser()
-        if not q.exists():
-            raise FileNotFoundError(q)
-        if not q.is_dir():
-            raise NotADirectoryError(q)
-        return AbsDir(q)
+    @classmethod
+    def _from(cls, p: UserPath, *, must_exist: bool) -> Self:
+        # Normalize early
+        q = Path(os.fspath(p)).expanduser()
 
-    @staticmethod
-    def any(p: UserAbsPath, *, expand_user: bool = True) -> AbsDir:
-        q = Path(os.fspath(p))
-        return AbsDir(q.expanduser() if expand_user else q)
+        if must_exist:
+            # Resolve fully; will raise if missing
+            q = q.resolve(strict=True)
+            if not q.is_dir():
+                raise NotADirectoryError(str(q))
+        else:
+            # Make absolute & collapse ".." without requiring the leaf to exist
+            q = (q if q.is_absolute() else (Path.cwd() / q)).resolve(strict=False)
+            # If something is there already, it must be a directory
+            if q.exists() and not q.is_dir():
+                raise NotADirectoryError(str(q))
+
+        return cls(q)
+
+    @classmethod
+    def existing(cls, p: UserPath) -> Self:
+        return cls._from(p, must_exist=True)
+
+    @classmethod
+    def normalized(cls, p: UserPath) -> Self:
+        return cls._from(p, must_exist=False)
 
     # Interop: allow passing to APIs that accept PathLike
     def __fspath__(self) -> str:
@@ -117,7 +127,7 @@ class AbsFile:
     path: Path
 
     @classmethod
-    def existing(cls, p: UserAbsPath, *, expand_user: bool = True) -> AbsFile:
+    def existing(cls, p: UserPath, *, expand_user: bool = True) -> AbsFile:
         q = Path(os.fspath(p))
         if expand_user:
             q = q.expanduser()

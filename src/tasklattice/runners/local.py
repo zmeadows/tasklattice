@@ -432,6 +432,7 @@ class LocalRunner(Runner):
                 "launch_spec": spec_to_jsonable(effective_spec, run_dir=run_dir),
                 "events": [],
             }
+
             write_runstate(run_dir, payload)
             append_runstate_event(run_dir, state=RunStatus.QUEUED, reason="submit")
 

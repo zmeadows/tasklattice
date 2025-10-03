@@ -7,13 +7,13 @@ from functools import partial
 from types import MappingProxyType
 from typing import Any, TypeAlias
 
-from tasklattice._paths import AbsDir, RelPath, UserAbsPath, UserRelPath
+from tasklattice._paths import AbsDir, RelPath, UserPath
 from tasklattice.constants import RUN_METADATA_DIR
 
 # TODO: handle/validate expected file encodings
 # TODO: what if prototype directory gets modified during course of TaskLattice script...?
 
-UserRenderSpec: TypeAlias = UserRelPath | tuple[UserRelPath, UserRelPath]
+UserRenderSpec: TypeAlias = UserPath | tuple[UserPath, UserPath]
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,8 +86,8 @@ class RunPlan:
     def __init__(
         self,
         name: str,
-        runs_root: UserAbsPath,
-        prototype_dir: UserAbsPath,
+        runs_root_user_path: UserPath,
+        prototype_dir_user_path: UserPath,
         render_files: Sequence[UserRenderSpec],
         link_mode: LinkMode = LinkMode.COPY,
         include_globs: Sequence[str] = ("**/*",),
@@ -99,14 +99,14 @@ class RunPlan:
         object.__setattr__(self, "name", name)
 
         # TODO: validate/check runs_root
-        object.__setattr__(self, "runs_root", AbsDir.any(runs_root))
+        object.__setattr__(self, "runs_root", AbsDir.normalized(runs_root_user_path))
 
-        pd = AbsDir.existing(prototype_dir)
-        object.__setattr__(self, "prototype_dir", pd)
+        prototype_dir = AbsDir.existing(prototype_dir_user_path)
+        object.__setattr__(self, "prototype_dir", prototype_dir)
 
         object.__setattr__(self, "link_mode", link_mode)
 
-        rs = map(partial(RenderSpec.construct, pd), render_files)
+        rs = map(partial(RenderSpec.construct, prototype_dir), render_files)
         object.__setattr__(self, "render_files", tuple(rs))
 
         targets = [str(rs.target_relpath) for rs in self.render_files]

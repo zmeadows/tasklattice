@@ -12,13 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from tasklattice._paths import AbsDir, RelPath
-from tasklattice.constants import INPUTS_SCHEMA, inputs_path, meta_dir
+from tasklattice.constants import FILES_SCHEMA, INPUTS_SCHEMA, files_path, inputs_path, meta_dir
 from tasklattice.core import SubstitutionMap, ValueLiteral
 from tasklattice.render import Renderer, TLRenderer
 from tasklattice.run.plan import LinkMode, RenderSpec, RunPlan
 from tasklattice.run.staging import DefaultStaging, StagingBackend
 from tasklattice.source import Source
 from tasklattice.template import Template
+from tasklattice.utils.fs_utils import ensure_parent_dirs
 
 
 # -----------------------------------------------------------------------------
@@ -119,8 +120,8 @@ def load_materialized(run_dir: str | os.PathLike[str] | AbsDir) -> RunMaterializ
     rd = run_dir if isinstance(run_dir, AbsDir) else AbsDir.existing(run_dir)
 
     # Required metadata paths
-    ip = inputs_path(rd.path)  # .../_tl/inputs.json
-    fp = meta_dir(rd.path) / "files.json"  # .../_tl/files.json
+    ip = inputs_path(rd.path)
+    fp = files_path(rd.path)
 
     # --- inputs.json (required) ---
     if not ip.is_file():
@@ -148,6 +149,7 @@ def load_materialized(run_dir: str | os.PathLike[str] | AbsDir) -> RunMaterializ
             f"Run is not fully materialized (missing {fp}). "
             "This usually indicates a failed or incomplete atomic finalize."
         )
+
     try:
         with fp.open("r", encoding="utf-8") as f:
             data = json.load(f)
@@ -395,29 +397,33 @@ def _write_inputs_json(
     """
     Write the static materialization metadata for a run (once, post-finalize).
     """
-    md = meta_dir(run_dir)
-    md.mkdir(parents=True, exist_ok=True)
+    path = inputs_path(run_dir)
+    ensure_parent_dirs(path)
+
     payload = {
-        "schema": INPUTS_SCHEMA,  # match run.json's 'schema' naming
+        "schema": INPUTS_SCHEMA,
         "plan_fingerprint": plan_fingerprint,
         "subs_fingerprint": subs_fingerprint,
         "params": _flatten_subs_for_inputs(params),
     }
-    path = inputs_path(run_dir)
+
     tmp = path.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2, sort_keys=True)
         f.write("\n")
+
     os.replace(tmp, path)
 
 
 def _write_files_json_streaming(run_dir: Path, records: Iterable[FileRecord]) -> None:
-    path = meta_dir(run_dir) / "files.json"
+    path = files_path(run_dir)
+    ensure_parent_dirs(path)
 
     tmp = path.with_suffix(".tmp")
     with tmp.open("w", encoding="utf-8") as f:
         f.write("[")
-        first = True
+        f.write(json.dumps({"schema": FILES_SCHEMA}, separators=(",", ":")))
+
         for r in records:
             item = {
                 "target_relpath": str(r.target_relpath),
@@ -426,12 +432,10 @@ def _write_files_json_streaming(run_dir: Path, records: Iterable[FileRecord]) ->
                 "size_bytes": r.size_bytes,
                 "sha256": r.sha256,
             }
-            if first:
-                first = False
-            else:
-                f.write(",")
+            f.write(",")
             # compact separators keep the file small
             f.write(json.dumps(item, separators=(",", ":")))
+
         f.write("]\n")
         f.flush()
         os.fsync(f.fileno())

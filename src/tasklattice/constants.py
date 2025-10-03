@@ -14,16 +14,21 @@ from pathlib import Path
 
 RUN_METADATA_DIR = "_tl"
 
-INPUTS_BASENAME = "inputs.json"  # static, written once at materialization time
-RUNSTATE_BASENAME = "run.json"  # dynamic, updated by runners
+# static, written once at materialization time
+INPUTS_BASENAME = "inputs.json"
+FILES_BASENAME = "files.json"
 
+# dynamic, updated by runners
+RUNSTATE_BASENAME = "run.json"
 STDOUT_BASENAME = "stdout.log"
 STDERR_BASENAME = "stderr.log"
 
 # ---- schema versions ---------------------------------------------------------
 
-INPUTS_SCHEMA = 0  # version of the inputs.json format
-RUNSTATE_SCHEMA = 0  # version of the run.json format
+# TODO(@zmeadows): check carefully that we are validating this where needed
+FILES_SCHEMA = 0  # version of the 'files' format
+INPUTS_SCHEMA = 0  # version of the 'inputs' format
+RUNSTATE_SCHEMA = 0  # version of the run-state format
 
 # ---- helpers ----------------------------------------------------------------
 
@@ -34,8 +39,13 @@ def meta_dir(run_dir: Path) -> Path:
 
 
 def inputs_path(run_dir: Path) -> Path:
-    """Path to the static materialization inputs file."""
+    """Path to the static materialization 'inputs' file."""
     return meta_dir(run_dir) / INPUTS_BASENAME
+
+
+def files_path(run_dir: Path) -> Path:
+    """Path to the static materialization 'files' file."""
+    return meta_dir(run_dir) / FILES_BASENAME
 
 
 def runstate_path(run_dir: Path) -> Path:
