@@ -38,23 +38,16 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from tasklattice.constants import (
-    RUNSTATE_SCHEMA,
     default_stderr_path,
     default_stdout_path,
     meta_dir,
-    runstate_path,
 )
 from tasklattice.platform import platform
-from tasklattice.run.materialize import RunMaterialized
-from tasklattice.run.state import (
-    TERMINAL_STATES,
+from tasklattice.run.io import (
+    RunFile,
     RunStatus,
-    append_runstate_event,
-    read_runstate,
-    spec_to_jsonable,
-    update_runstate,
-    write_runstate,
 )
+from tasklattice.run.materialize import RunMaterialized
 from tasklattice.runners.base import (
     LaunchSpec,
     LaunchSpecFactory,
@@ -65,23 +58,12 @@ from tasklattice.runners.base import (
     validate_spec_common,
 )
 from tasklattice.utils.fs_utils import ensure_parent_dirs
-from tasklattice.utils.json_utils import json_load
+from tasklattice.utils.misc_utils import here
 from tasklattice.utils.time_utils import now_iso
 
 # -----------------------------------------------------------------------------
 # Small utilities (json i/o, timestamps)
 # -----------------------------------------------------------------------------
-
-
-def _as_status(x: Any) -> RunStatus | None:
-    if isinstance(x, RunStatus):
-        return x
-    if isinstance(x, str):
-        try:
-            return RunStatus(x)
-        except ValueError:
-            return None
-    return None
 
 
 def _resolve_max_parallel(setting: int | Literal["auto", "unbounded"]) -> int | None:
@@ -149,11 +131,12 @@ def _terminate_with_grace(
 # RunHandle impl (monitor updates the metadata; handle supports QUEUED state)
 # -----------------------------------------------------------------------------
 
+# TODO[@zmeadows][P1]: store lock on _LocalRunHandle
+
 
 @dataclass
 class _LocalRunHandle(RunHandle):
     _runner: LocalRunner
-    _run_id: str
     _run_dir: Path
     _proc: subprocess.Popen[bytes] | None = None
     _stdout: Path | None = None
@@ -163,51 +146,53 @@ class _LocalRunHandle(RunHandle):
     _started_evt: threading.Event = field(default_factory=threading.Event)
     _finished_evt: threading.Event = field(default_factory=threading.Event)
 
-    def run_id(self) -> str:
-        return self._run_id
-
-    def external_id(self) -> str | None:
-        if self._proc is not None:
-            return str(self._proc.pid)
-        doc = read_runstate(self._run_dir)
-        eid = doc.get("external_id")
-        return str(eid) if eid is not None else None
-
     def status(self) -> RunStatus:
-        # Live handle path
+        # TODO[@zmeadows][P1]: acquire lock for entire operation here.
+
+        run_file = RunFile.load(self._run_dir)
+        # live path: run handle
         if self._proc is not None:
+            # TODO[@zmeadows][P1]: update run file here
+            new_status = run_file.status
+
             rc = self._proc.poll()
             if rc is None:
-                return RunStatus.RUNNING
-            if self._timed_out:
-                return RunStatus.TIMED_OUT
-            if self._cancel_requested:
-                return RunStatus.CANCELLED
-            return RunStatus.SUCCEEDED if rc == 0 else RunStatus.FAILED
+                new_status = RunStatus.RUNNING
+            elif self._timed_out:
+                new_status = RunStatus.TIMED_OUT
+            elif self._cancel_requested:
+                new_status = RunStatus.CANCELLED
+            elif rc == 0:
+                new_status = RunStatus.SUCCEEDED
+            else:
+                new_status = RunStatus.FAILED
 
-        # Passive path: read run.json
-        doc = read_runstate(self._run_dir)
-        if not doc:
-            return RunStatus.CANCELLED if self._cancel_requested else RunStatus.FAILED
-        state = _as_status(doc.get("state"))
+            # TODO[@zmeadows][P1]: deal with update_reason field more systematically
+            run_file.evolve(status=new_status).save(self._run_dir)
+            return new_status
 
-        if state == RunStatus.RUNNING:
-            pid_val = doc.get("external_id")
+        # passive path: read run.json
+        status = run_file.status
+
+        # TODO[@zmeadows][P1]: cleanup this if block
+        if status == RunStatus.RUNNING:
             try:
+                pid_val = run_file.runner_meta["pid"]
                 pid = int(pid_val) if pid_val is not None else None
             except Exception:
                 pid = None
-            if pid is not None and platform.pid_alive(pid) is False:
-                self._runner._finalize_unknown_exit(
-                    self._run_dir, state=RunStatus.FAILED, reason="pid_not_found"
-                )
-                doc = read_runstate(self._run_dir) or {"state": RunStatus.FAILED}
-                state = _as_status(doc.get("state")) or RunStatus.FAILED
 
-        try:
-            return cast(RunStatus, state)
-        except Exception:
-            return RunStatus.FAILED
+            # TODO[@zmeadows][P2]: deal with orphaned process here (pid is None)
+
+            if pid is not None and platform.pid_alive(pid) is False:
+                run_file = run_file.evolve(
+                    status=RunStatus.FAILED,
+                    update_reason="pid_not_found",
+                )
+                run_file.save(self._run_dir)
+                return RunStatus.FAILED
+
+        return status
 
     def wait(self, timeout_s: float | None = None) -> RunStatus:
         # Live handle: rely on monitor events set by runner.
@@ -222,7 +207,12 @@ class _LocalRunHandle(RunHandle):
 
         # Passive/attached: poll run.json until terminal or timeout.
         start = time.monotonic()
-        term = {RunStatus.SUCCEEDED, RunStatus.FAILED, RunStatus.CANCELLED, RunStatus.TIMED_OUT}
+        term = {
+            RunStatus.SUCCEEDED,
+            RunStatus.FAILED,
+            RunStatus.CANCELLED,
+            RunStatus.TIMED_OUT,
+        }
         while True:
             st = self.status()
             if st in term:
@@ -244,20 +234,18 @@ class _LocalRunHandle(RunHandle):
         _ = reason  # TODO: plumb into events
         self._cancel_requested = True
 
-        if self._proc is None:
-            doc = read_runstate(self._run_dir)
-            state = _as_status(doc.get("state"))
-            if state == RunStatus.RUNNING:
-                self._runner._cancel_attached(
-                    self._run_dir, handle=self, grace_s=grace_s, force=force
-                )
-                return
+        # Live running
+        if self._proc is not None:
+            self._runner._cancel_running(self._run_dir, handle=self, grace_s=grace_s, force=force)
+
+        run_file = RunFile.load(self._run_dir)
+
+        # TODO[@zmeadows][P2]: give _cancel_attached and _cancel_queued more accurate names
+        if run_file.status == RunStatus.RUNNING:
+            self._runner._cancel_attached(self._run_dir, handle=self, grace_s=grace_s, force=force)
+        else:
             # queued or unknown
             self._runner._cancel_queued(self._run_dir, handle=self)
-            return
-
-        # Live running
-        self._runner._cancel_running(self._run_dir, handle=self, grace_s=grace_s, force=force)
 
     def return_code(self) -> int | None:
         return None if self._proc is None else self._proc.returncode
@@ -271,7 +259,6 @@ class _LocalRunHandle(RunHandle):
 
 @dataclass(slots=True)
 class _RunRecordCommon:
-    run_id: str
     run_dir: Path
     handle: _LocalRunHandle
     stdout_path: Path
@@ -376,7 +363,6 @@ class LocalRunner(Runner):
         and return a handle (which may be queued or running).
         """
         run_dir: Path = run.run_dir.path
-        run_id = str(getattr(run, "run_id", None) or run_dir.name)
 
         # Compute effective spec and normalize defaults.
         base_spec = self.effective_spec(run)
@@ -389,16 +375,12 @@ class LocalRunner(Runner):
         # Per-run lock (shared with monitor)
         run_lock = self._get_run_lock(run_dir)
 
-        # Determine attempt & write "queued" atomically
         with run_lock:
-            attempt = 1
-            prior = read_runstate(run_dir)
-            if prior and isinstance(prior.get("attempt"), int):
-                attempt = prior["attempt"] + 1
-
             # Truncate logs fresh each submission
             ensure_parent_dirs(stdout_p)
             ensure_parent_dirs(stderr_p)
+
+            # TODO[@zmeadows][P2]: keep stdout/stderr from previous attempts
             open(stdout_p, "wb").close()
             open(stderr_p, "wb").close()
 
@@ -417,31 +399,18 @@ class LocalRunner(Runner):
             validate_spec_common(effective_spec, run_dir=run_dir)
             self.validate_spec(effective_spec, run_dir=run_dir)
 
-            # Record queued state
-            payload = {
-                "schema": RUNSTATE_SCHEMA,
-                "runner": self.name,
-                "run_id": run_id,
-                "attempt": attempt,
-                "state": RunStatus.QUEUED,
-                "submitted_at": now_iso(),
-                "started_at": None,
-                "finished_at": None,
-                "external_id": None,
-                "return_code": None,
-                "launch_spec": spec_to_jsonable(effective_spec, run_dir=run_dir),
-                "events": [],
-            }
-
-            write_runstate(run_dir, payload)
-            append_runstate_event(run_dir, state=RunStatus.QUEUED, reason="submit")
+            # TODO[@zmeadows][P2]: make combined load -> evolve -> save method
+            RunFile.load(run_dir).evolve(
+                status=RunStatus.QUEUED,
+                update_reason="LocalRunner.submit",
+                runner_kind="local",
+            ).save(run_dir)
 
         # Construct handle
-        handle = _LocalRunHandle(self, run_id, run_dir, None, stdout_p, stderr_p)
+        handle = _LocalRunHandle(self, run_dir, None, stdout_p, stderr_p)
 
         # Try to start immediately if capacity allows; otherwise enqueue.
         pending = _PendingRunRecord(
-            run_id=run_id,
             run_dir=run_dir,
             spec=effective_spec,
             stdout_path=stdout_p,
@@ -458,20 +427,9 @@ class LocalRunner(Runner):
                 except Exception as exc:
                     # Mark FAILED with finished_at and a spawn event, then re-raise.
                     with run_lock:
-                        update_runstate(
-                            run_dir,
-                            {
-                                "state": RunStatus.FAILED,
-                                "finished_at": now_iso(),
-                                "return_code": None,
-                            },
-                        )
-
-                        append_runstate_event(
-                            run_dir,
-                            state=RunStatus.FAILED,
-                            reason=f"spawn failed: {exc!s}",
-                        )
+                        RunFile.load(run_dir).evolve(
+                            status=RunStatus.FAILED, update_reason=f"spawn failed: {exc!s}"
+                        ).save(run_dir)
                     raise
             else:
                 # No capacity → enqueue
@@ -480,77 +438,6 @@ class LocalRunner(Runner):
             self._cond.notify_all()
 
         return handle
-
-    def attach(self, run: RunMaterialized) -> RunHandle | None:
-        """Attach to an existing run directory.
-
-        Returns a passive handle (no Popen). If the run is terminal, the handle's
-        finished event is set. If the run is RUNNING but the PID is missing and
-        we're on POSIX, auto-finalize to FAILED (pid_not_found).
-        returns None for QUEUED.
-        """
-        run_dir: Path = run.run_dir.path
-        doc = json_load(runstate_path(run_dir))
-        if not doc:
-            return None
-
-        # Only attach if this run belongs to this runner name.
-        runner_name = doc.get("runner")
-        if runner_name and runner_name != self.name:
-            return None
-
-        # Derive stdout/stderr paths (from launch_spec or defaults)
-        ls = doc.get("launch_spec") or {}
-        try:
-            raw_stdout = ls.get("stdout_path")
-            stdout_p = (
-                Path(raw_stdout) if isinstance(raw_stdout, str) else default_stdout_path(run_dir)
-            )
-        except Exception:
-            stdout_p = default_stdout_path(run_dir)
-        try:
-            raw_stderr = ls.get("stderr_path")
-            stderr_p = (
-                Path(raw_stderr) if isinstance(raw_stderr, str) else default_stderr_path(run_dir)
-            )
-        except Exception:
-            stderr_p = default_stderr_path(run_dir)
-
-        run_id = str(doc.get("run_id") or run_dir.name)
-        handle = _LocalRunHandle(self, run_id, run_dir, None, stdout_p, stderr_p)
-
-        state = _as_status(doc.get("state"))
-        if state in {
-            RunStatus.SUCCEEDED,
-            RunStatus.FAILED,
-            RunStatus.CANCELLED,
-            RunStatus.TIMED_OUT,
-        }:
-            handle._started_evt.set()
-            handle._finished_evt.set()
-            return handle
-
-        if state == RunStatus.RUNNING:
-            pid_val = doc.get("external_id")
-            try:
-                pid = int(pid_val) if pid_val is not None else None
-            except Exception:
-                pid = None
-            if pid is not None and platform.pid_alive(pid) is False:
-                self._finalize_unknown_exit(run_dir, state=RunStatus.FAILED, reason="pid_not_found")
-                handle._started_evt.set()
-                handle._finished_evt.set()
-                return handle
-            # Otherwise, passive RUNNING.
-            handle._started_evt.set()
-            return handle
-
-        if state == RunStatus.QUEUED:
-            # Can't reconstruct a queued in-memory item → refuse attach.
-            return None
-
-        # Unknown state → refuse
-        return None
 
     def close(self) -> None:
         """Stop the monitor thread. We don't mutate per-run state here."""
@@ -562,7 +449,7 @@ class LocalRunner(Runner):
 
     # ---- helpers: PID liveness / termination / finalize ----------------------
 
-    def _finalize_unknown_exit(self, run_dir: Path, *, state: str, reason: str) -> None:
+    def _finalize_unknown_exit(self, run_dir: Path, *, status: RunStatus, reason: str) -> None:
         """Idempotently flip a non-terminal run.json into a terminal state.
 
         Used when we detect a stale RUNNING state but the PID is gone, or after
@@ -570,23 +457,28 @@ class LocalRunner(Runner):
         """
 
         with self._get_run_lock(run_dir):
-            doc = read_runstate(run_dir)
+            doc = RunFile.load(run_dir)
 
-            cur = _as_status(doc.get("state"))
-            if cur in TERMINAL_STATES:
+            cur = doc.status
+            if cur is None:
+                # TODO(@zmeadows): decide how to handle missing runstate json file
+                # TODO[@zmeadows][P1]: convert all pre-existing TODOs to new format
+                raise ValueError("missing status")
+
+            if cur.is_terminal():
                 return
 
-            doc["state"] = state
-            doc["finished_at"] = now_iso()
-            # keep existing return_code if set; else None
-            if "return_code" not in doc:
-                doc["return_code"] = None
-            # advisory flags
-            doc["finalized_by_attach"] = True
-            doc["reason"] = reason
+            tnow = now_iso()
 
-            write_runstate(run_dir, doc)
-            append_runstate_event(run_dir, state=state, reason=reason)
+            doc.evolve(
+                touch=False,
+                status=status,
+                finished_at=tnow,
+                updated_at=tnow,
+                update_reason=reason,
+            )
+
+            doc.save(run_dir)
 
     def _cancel_attached(
         self, run_dir: Path, *, handle: _LocalRunHandle, grace_s: float | None = None, force: bool
@@ -594,23 +486,27 @@ class LocalRunner(Runner):
         """Cancel a RUNNING attached run via PID/PGID and finalize to CANCELLED."""
         lock = self._get_run_lock(run_dir)
         with lock:
-            doc = json_load(runstate_path(run_dir)) or {}
+            doc = RunFile.load(run_dir)
 
-            state = _as_status(doc.get("state"))
-            if state in TERMINAL_STATES:
+            status = doc.status
+            if status is None:
+                # TODO(@zmeadows): decide how to handle missing runstate json file
+                raise ValueError("missing status")
+
+            if status.is_terminal():
                 return
 
-            if state != RunStatus.RUNNING:
+            if status != RunStatus.RUNNING:
                 # Not running; treat as queued or unknown → mark cancelled.
                 self._finalize_unknown_exit(
-                    run_dir, state=RunStatus.CANCELLED, reason="user_cancel_nonrunning"
+                    run_dir, status=RunStatus.CANCELLED, reason="user_cancel_nonrunning"
                 )
                 handle._finished_evt.set()
                 return
 
             # RUNNING
-            pid_val = doc.get("external_id")
             try:
+                pid_val = doc.runner_meta["pid"]
                 pid = int(pid_val) if pid_val is not None else None
             except Exception:
                 pid = None
@@ -619,7 +515,7 @@ class LocalRunner(Runner):
             _terminate_with_grace(pid, grace_s=grace_s, force=force)
 
         # Regardless of platform/liveness certainty, mark CANCELLED.
-        self._finalize_unknown_exit(run_dir, state=RunStatus.CANCELLED, reason="user_cancel")
+        self._finalize_unknown_exit(run_dir, status=RunStatus.CANCELLED, reason="user_cancel")
         handle._finished_evt.set()
 
     # ---- internal: cancellation of runs ------------------------------
@@ -642,16 +538,17 @@ class LocalRunner(Runner):
             record = self._pending[idx]
             del self._pending[idx]
 
-        # Mark cancelled in run.json
-        with record.lock:
-            update_runstate(
-                run_dir,
-                {"state": RunStatus.CANCELLED, "finished_at": now_iso(), "return_code": None},
-            )
-
-            append_runstate_event(
-                run_dir, state=RunStatus.CANCELLED, reason="cancelled while queued"
-            )
+            # Mark cancelled in run.json
+            with record.lock:
+                tnow = now_iso()
+                RunFile.load(run_dir).evolve(
+                    touch=False,
+                    status=RunStatus.CANCELLED,
+                    updated_at=tnow,
+                    finished_at=tnow,
+                    exit_code=None,
+                    reason="cancelled_while_queued",
+                ).save(run_dir)
 
         handle._finished_evt.set()
 
@@ -735,13 +632,16 @@ class LocalRunner(Runner):
                     ):
                         rec.handle._timed_out = True
                         _terminate_with_grace(proc)
-                        append_runstate_event(run_dir, state=RunStatus.TIMED_OUT, reason="timeout")
+
+                        RunFile.load(run_dir).evolve(
+                            status=RunStatus.TIMED_OUT, update_reason="timeout"
+                        ).save(run_dir)
+
                         rec.deadline_monotonic = None  # prevent repeated signaling
 
                     # Finalization on process exit
                     rc = proc.poll()
                     if rc is not None:
-                        finished_at = now_iso()
                         if rec.handle._timed_out:
                             final_state = RunStatus.TIMED_OUT
                         elif rec.handle._cancel_requested:
@@ -749,16 +649,15 @@ class LocalRunner(Runner):
                         else:
                             final_state = RunStatus.SUCCEEDED if rc == 0 else RunStatus.FAILED
 
-                        update_runstate(
-                            run_dir,
-                            {
-                                "state": final_state,
-                                "finished_at": finished_at,
-                                "return_code": rc,
-                            },
-                        )
-
-                        append_runstate_event(run_dir, state=final_state, reason="process exited")
+                        tnow = now_iso()
+                        RunFile.load(run_dir).evolve(
+                            touch=False,
+                            status=final_state,
+                            exit_code=rc,
+                            finished_at=tnow,
+                            updated_at=tnow,
+                            update_reason="process_exit",
+                        ).save(run_dir)
 
                         rec.handle._finished_evt.set()
                         to_remove.append(run_dir)
@@ -781,20 +680,15 @@ class LocalRunner(Runner):
                     except Exception as exc:
                         # Mark FAILED and continue to next pending
                         with item.lock:
-                            update_runstate(
-                                item.run_dir,
-                                {
-                                    "state": RunStatus.FAILED,
-                                    "finished_at": now_iso(),
-                                    "return_code": None,
-                                },
-                            )
-
-                            append_runstate_event(
-                                item.run_dir,
-                                state=RunStatus.FAILED,
-                                reason=f"spawn failed: {exc!s}",
-                            )
+                            tnow = now_iso()
+                            RunFile.load(item.run_dir).evolve(
+                                touch=False,
+                                status=RunStatus.FAILED,
+                                exit_code=None,
+                                finished_at=tnow,
+                                updated_at=tnow,
+                                update_reason=f"spawn failed: {exc!s}",
+                            ).save(item.run_dir)
 
                             item.handle._finished_evt.set()
                             # don't re-raise from monitor loop
@@ -850,6 +744,8 @@ class LocalRunner(Runner):
         popen_kwargs: dict[str, Any] = {}
         platform.configure_popen_group(popen_kwargs)
 
+        tspawn = now_iso()
+
         proc = subprocess.Popen(
             list(spec.cmd),
             cwd=str(cwd_abs),
@@ -861,18 +757,21 @@ class LocalRunner(Runner):
             errors=None,
             **popen_kwargs,
         )
+
+        # TODO[@zmeadows][P0]: determine if this cast is necessary or even valid
         proc = cast(subprocess.Popen[bytes], proc)
 
-        # Mark running
-        with run_lock:
-            update_runstate(
-                run_dir,
-                {"state": RunStatus.RUNNING, "started_at": now_iso(), "external_id": str(proc.pid)},
-            )
+        # TODO[@zmeadows][P1]: Determine if run_lock should be used for
+        # protecting other fields besides just the run file
 
-            append_runstate_event(
-                run_dir, state=RunStatus.RUNNING, reason=f"spawned pid {proc.pid}"
-            )
+        with run_lock:  # Mark running
+            RunFile.load(run_dir).evolve(
+                touch=False,
+                started_at=tspawn,
+                updated_at=tspawn,
+                update_reason=f"{here()}: spawned PID {proc.pid}",
+                runner_meta={"pid": proc.pid},
+            ).save(run_dir)
 
         # Update handle & register
         record.handle._proc = proc
@@ -886,7 +785,6 @@ class LocalRunner(Runner):
             deadline = time.monotonic() + float(tl)
 
         rec = _ActiveRunRecord(
-            run_id=record.run_id,
             run_dir=run_dir,
             handle=record.handle,
             stdout_path=record.stdout_path,

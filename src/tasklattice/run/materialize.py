@@ -15,11 +15,13 @@ from tasklattice._paths import AbsDir, RelPath
 from tasklattice.constants import FILES_SCHEMA, INPUTS_SCHEMA, files_path, inputs_path, meta_dir
 from tasklattice.core import SubstitutionMap, ValueLiteral
 from tasklattice.render import Renderer, TLRenderer
+from tasklattice.run.io import RunFile, RunStatus
 from tasklattice.run.plan import LinkMode, RenderSpec, RunPlan
 from tasklattice.run.staging import DefaultStaging, StagingBackend
 from tasklattice.source import Source
 from tasklattice.template import Template
 from tasklattice.utils.fs_utils import ensure_parent_dirs
+from tasklattice.utils.time_utils import now_iso
 
 
 # -----------------------------------------------------------------------------
@@ -38,6 +40,7 @@ class FileRecord:
     sha256: str | None = None  # digest of the file content at target
 
 
+# TODO[@zmeadows][P1]: clarify/rename `run_id` field
 @dataclass(frozen=True, slots=True)
 class RunMaterialized:
     """Immutable description of a single *realized* run directory."""
@@ -353,6 +356,15 @@ class Materializer:
 
         _write_files_json_streaming(final_dir, records)
 
+        tnow = now_iso()
+        RunFile(
+            variant_hash=subs_fp,
+            status=RunStatus.STAGED,
+            created_at=tnow,
+            updated_at=tnow,
+            update_reason="materialized",
+        ).save(final_dir)
+
         return RunMaterialized(
             run_id=run_id,
             run_dir=AbsDir.existing(final_dir),
@@ -564,6 +576,7 @@ def _sha256_file(p: Path) -> str:
     return h.hexdigest()
 
 
+# TODO[@zmeadows][P1]: Determine if this part of run_id is truly necessary
 def _plan_fingerprint(plan: RunPlan) -> str:
     """Hash plan knobs that affect on-disk results (independent of subs)."""
     payload = {

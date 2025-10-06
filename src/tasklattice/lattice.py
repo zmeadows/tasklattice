@@ -128,7 +128,7 @@ class _SeedOp(_Op):
     def details(self) -> str:
         keys = list(self.defaults.keys())
         show = ", ".join(repr(k) for k in keys[:5])
-        extra = "" if len(keys) <= 5 else f", … (+{len(keys)-5} more)"
+        extra = "" if len(keys) <= 5 else f", … (+{len(keys) - 5} more)"
         return f"defaults=[{show}{extra}]"
 
 
@@ -149,7 +149,7 @@ class _ConstOp(_Op):
     def details(self) -> str:
         keys = list(self.const.keys())
         show = ", ".join(repr(k) for k in keys[:5])
-        extra = "" if len(keys) <= 5 else f", … (+{len(keys)-5} more)"
+        extra = "" if len(keys) <= 5 else f", … (+{len(keys) - 5} more)"
         return f"keys=[{show}{extra}]"
 
 
@@ -171,7 +171,7 @@ class _ProductOp(_Op):
 
     def details(self) -> str:
         preview = ", ".join(repr(v) for v in self.values[:3])
-        extra = "" if len(self.values) <= 3 else f", … (+{len(self.values)-3} more)"
+        extra = "" if len(self.values) <= 3 else f", … (+{len(self.values) - 3} more)"
         return f"name={self.name!r}, values=[{preview}{extra}]"
 
 
@@ -335,7 +335,7 @@ class _ConstrainedProductOp(_Op):
         ks = list(self.space.keys())
         lens = [len(self.space[k]) for k in ks]
         show = ", ".join(f"{k!r}:{n}" for k, n in zip(ks[:5], lens[:5], strict=False))
-        extra = "" if len(ks) <= 5 else f", … (+{len(ks)-5} more)"
+        extra = "" if len(ks) <= 5 else f", … (+{len(ks) - 5} more)"
         return f"space=[{show}{extra}], constraint={getattr(self.ok, '__name__', '<fn>')}"
 
 

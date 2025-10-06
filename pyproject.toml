@@ -9,6 +9,7 @@ requires-python = ">=3.11,<3.13"
 dependencies = [
   "lark>=1.2,<2",
   "rich>=14,<15",
+  "msgspec>=0.19,<0.20",
 ]
 
 [project.urls]
@@ -44,7 +45,7 @@ target-version = ["py311"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
-src = ["src"]
+src = ["src", "test"]
 respect-gitignore = true
 
 [tool.ruff.lint]

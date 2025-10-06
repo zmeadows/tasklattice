@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-# ---- directory & filenames ---------------------------------------------------
+# ---- meta directory & filenames ---------------------------------------------------
 
 RUN_METADATA_DIR = "_tl"
 
@@ -19,7 +19,7 @@ INPUTS_BASENAME = "inputs.json"
 FILES_BASENAME = "files.json"
 
 # dynamic, updated by runners
-RUNSTATE_BASENAME = "run.json"
+RUNFILE_BASENAME = "run.json"
 STDOUT_BASENAME = "stdout.log"
 STDERR_BASENAME = "stderr.log"
 
@@ -28,7 +28,7 @@ STDERR_BASENAME = "stderr.log"
 # TODO(@zmeadows): check carefully that we are validating this where needed
 FILES_SCHEMA = 0  # version of the 'files' format
 INPUTS_SCHEMA = 0  # version of the 'inputs' format
-RUNSTATE_SCHEMA = 0  # version of the run-state format
+RUNFILE_SCHEMA = 0  # version of the run-state format
 
 # ---- helpers ----------------------------------------------------------------
 
@@ -48,9 +48,9 @@ def files_path(run_dir: Path) -> Path:
     return meta_dir(run_dir) / FILES_BASENAME
 
 
-def runstate_path(run_dir: Path) -> Path:
+def run_file_path(run_dir: Path) -> Path:
     """Path to the dynamic run-state file written by runners."""
-    return meta_dir(run_dir) / RUNSTATE_BASENAME
+    return meta_dir(run_dir) / RUNFILE_BASENAME
 
 
 def default_stdout_path(run_dir: Path) -> Path:

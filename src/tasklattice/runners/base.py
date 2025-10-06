@@ -19,9 +19,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, TypeAlias, runtime_checkable
 
+from tasklattice.run.io import RunStatus
+
 # One-way dependency: runners -> materialize
 from tasklattice.run.materialize import RunMaterialized
-from tasklattice.run.state import RunStatus
 
 # -----------------------------------------------------------------------------
 # Portable submission model (runner-owned)
@@ -198,8 +199,6 @@ def validate_spec_common(spec: LaunchSpec, *, run_dir: Path) -> None:
 
 @runtime_checkable
 class RunHandle(Protocol):
-    def run_id(self) -> str: ...
-    def external_id(self) -> str | None: ...
     def status(self) -> RunStatus: ...
     def wait(self, timeout_s: float | None = None) -> RunStatus: ...
     def cancel(
@@ -214,8 +213,8 @@ class RunHandle(Protocol):
 class Runner(Protocol):
     name: str
 
+    # TODO[@zmeadows][P2]: `attach` method
     def submit(self, run: RunMaterialized) -> RunHandle: ...
-    def attach(self, run: RunMaterialized) -> RunHandle | None: ...
     def close(self) -> None: ...
 
     # Optional introspection/validation hooks:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from importlib import import_module
 
-from tasklattice.run.state import TERMINAL_STATES, RunStatus
+from tasklattice.run.io import RunStatus
 from tasklattice.runners.base import (
     LaunchSpec,
     LaunchSpecFactory,
@@ -47,7 +47,6 @@ __all__ = [
     "Runner",
     "RunHandle",
     "RunStatus",
-    "TERMINAL_STATES",
     "Resources",
     "LaunchSpec",
     "LaunchSpecFactory",
