@@ -150,6 +150,12 @@ def validate_spec_common(spec: LaunchSpec, *, run_dir: Path) -> None:
     # ngpus
     if isinstance(spec.resources.gpus, int) and spec.resources.gpus <= 0:
         raise ValueError("Resources.gpus must be a positive integer (or None)")
+    elif isinstance(spec.resources.gpus, dict):
+        for gpu_type, gpu_count in spec.resources.gpus.items():
+            if len(gpu_type) == 0:
+                raise ValueError("Resources.gpus type labels must be non-empty strings.")
+            if gpu_count <= 0:
+                raise ValueError(f"Resources.gpus count for {gpu_type} must be a positive integer")
 
     # mem
     if spec.resources.mem_mb is not None and spec.resources.mem_mb <= 0:

@@ -12,6 +12,8 @@ from pathlib import Path
 
 # ---- meta directory & filenames ---------------------------------------------------
 
+# TODO[@zmeadows][P0]: replace *all* direct references to these files (even in comments)
+
 RUN_METADATA_DIR = "_tl"
 
 # static, written once at materialization time
