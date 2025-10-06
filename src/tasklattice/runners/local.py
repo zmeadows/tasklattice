@@ -231,7 +231,8 @@ class _LocalRunHandle(RunHandle):
         - Running (live): signal via runner under lock.
         - Running (attached): kill by PID/PGID and finalize.
         """
-        _ = reason  # TODO: plumb into events
+        # TODO[@zmeadows][P1]: get `reason` into the run file somehow
+        _ = reason
         self._cancel_requested = True
 
         # Live running
@@ -461,7 +462,6 @@ class LocalRunner(Runner):
 
             cur = doc.status
             if cur is None:
-                # TODO(@zmeadows): decide how to handle missing runstate json file
                 # TODO[@zmeadows][P1]: convert all pre-existing TODOs to new format
                 raise ValueError("missing status")
 
@@ -490,7 +490,6 @@ class LocalRunner(Runner):
 
             status = doc.status
             if status is None:
-                # TODO(@zmeadows): decide how to handle missing runstate json file
                 raise ValueError("missing status")
 
             if status.is_terminal():
@@ -521,7 +520,7 @@ class LocalRunner(Runner):
     # ---- internal: cancellation of runs ------------------------------
 
     def _cancel_queued(self, run_dir: Path, *, handle: _LocalRunHandle) -> None:
-        # TODO: since handle stores run_dir, do we need both run_dir and handle args?
+        # TODO[@zmeadows][P1]: since handle stores run_dir, do we need both run_dir and handle args?
         with self._active_lock:
             # Remove from pending if present
             idx = None

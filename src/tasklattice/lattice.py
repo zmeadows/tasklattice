@@ -508,9 +508,8 @@ class Lattice:
                 payload = repr(tuple(sorted((repr(k), repr(v)) for k, v in m.items())))
             h = hashlib.blake2b(digest_size=16)
 
-            # TODO(@zmeadows): "we should detect major version mismatches and warn/inform user
+            # TODO[@zmeadows][P1]: re-wrap my mind around all the hashing/fingerprints
             salt = ""
-
             h.update(salt.encode("utf-8"))
             h.update(payload.encode("utf-8"))
             yield (h.hexdigest(), m)

@@ -101,6 +101,7 @@ def materialize_run(
         hash_rendered=hash_rendered,
         hash_copied=hash_copied,
     )
+
     return mat.run(subs)
 
 
@@ -427,6 +428,7 @@ def _write_inputs_json(
     os.replace(tmp, path)
 
 
+# TODO[@zmeadows][P2]: integrate this with fs_utils.py
 def _write_files_json_streaming(run_dir: Path, records: Iterable[FileRecord]) -> None:
     path = files_path(run_dir)
     ensure_parent_dirs(path)
@@ -455,7 +457,6 @@ def _write_files_json_streaming(run_dir: Path, records: Iterable[FileRecord]) ->
     # make the rename durable too
     os.replace(tmp, path)
 
-    # TODO: extract this to stand-alone function to use elsewhere, perhaps just once.
     try:
         dir_fd = os.open(str(meta_dir(run_dir)), os.O_DIRECTORY)
         try:

@@ -10,8 +10,9 @@ from typing import Any, TypeAlias
 from tasklattice._paths import AbsDir, RelPath, UserPath
 from tasklattice.constants import RUN_METADATA_DIR
 
-# TODO: handle/validate expected file encodings
-# TODO: what if prototype directory gets modified during course of TaskLattice script...?
+# TODO[@zmeadows][P3]: Figure out where/when to validate file encodings
+# TODO[@zmeadows][P3]: what if prototype directory gets modified during the
+# course of a TaskLattice script...?
 
 UserRenderSpec: TypeAlias = UserPath | tuple[UserPath, UserPath]
 
@@ -98,7 +99,7 @@ class RunPlan:
     ):
         object.__setattr__(self, "name", name)
 
-        # TODO: validate/check runs_root
+        # TODO[@zmeadows][P0]: (partially) validate runs_root here
         object.__setattr__(self, "runs_root", AbsDir.normalized(runs_root_user_path))
 
         prototype_dir = AbsDir.existing(prototype_dir_user_path)
@@ -114,7 +115,6 @@ class RunPlan:
         if dupes:
             raise ValueError(f"Duplicate render targets: {sorted(dupes)}")
 
-        # TODO: systematize/centralize names/locations of metadata folder(s)
         if any(t.startswith(RUN_METADATA_DIR) for t in targets):
             raise ValueError(
                 f"Render targets may not write under the reserved prefix: {RUN_METADATA_DIR}"

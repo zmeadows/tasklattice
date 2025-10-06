@@ -41,7 +41,7 @@ class Template:
             par = resolve_param(parse_param(ph))
 
             if par.name in params:
-                # TODO: better error message that points to both locations in Source
+                # TODO[@zmeadows][P2]: better error message that points to both locations in Source
                 raise RuntimeError(f"Duplicate parameter found with name: {par.name}")
 
             params[par.name] = par

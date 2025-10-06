@@ -17,11 +17,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Self, TypeAlias
 
-# ---------------------------------------------------------------------------
-# Intent-only aliases for inputs. These don’t enforce absolute/relative
-# at type-check time; constructors below do the runtime validation.
-# ---------------------------------------------------------------------------
-# TODO(@zmeadows): consolidate these to one UserPath
 UserPath: TypeAlias = str | os.PathLike[str]
 
 
