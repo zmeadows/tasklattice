@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import signal
 import subprocess
+import sys
 from typing import Any, ClassVar, Literal
 
 from .base import PlatformOps, TerminationMode
+
+assert sys.platform == "win32"
 
 
 class _Win(PlatformOps):
@@ -48,7 +51,7 @@ class _Win(PlatformOps):
         if isinstance(proc_or_pid, subprocess.Popen):
             if mode == "soft":
                 try:
-                    proc_or_pid.send_signal(signal.CTRL_BREAK_EVENT)  # type: ignore[attr-defined]
+                    proc_or_pid.send_signal(signal.CTRL_BREAK_EVENT)
                     return
                 except Exception:
                     # fall through to taskkill

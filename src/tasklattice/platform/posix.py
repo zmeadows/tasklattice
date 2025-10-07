@@ -3,9 +3,12 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
+import sys
 from typing import Any, ClassVar, Literal
 
 from .base import PlatformOps, TerminationMode
+
+assert sys.platform != "win32"
 
 
 class _Posix(PlatformOps):
