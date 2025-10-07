@@ -221,6 +221,8 @@ class Runner(Protocol):
 
     # TODO[@zmeadows][P2]: `attach` method
     def submit(self, run: RunMaterialized) -> RunHandle: ...
+
+    # TODO[@zmeadows][P0]: clarify scope/responsibilities of this method
     def close(self) -> None: ...
 
     # Optional introspection/validation hooks:

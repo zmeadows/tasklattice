@@ -366,6 +366,9 @@ class Materializer:
             update_reason="materialized",
         ).save(final_dir)
 
+        # TODO[@zmeadows][P0]: define invariants to expect after RunMaterialized is generated.
+        # This would include the presence of RUN_METADATA_DIR, INPUTS_BASENAME, RUNFILE_BASENAME,
+        # and FILES_BASENAME at least.
         return RunMaterialized(
             run_id=run_id,
             run_dir=AbsDir.existing(final_dir),

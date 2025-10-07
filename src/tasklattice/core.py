@@ -68,7 +68,6 @@ class DomainSet(Domain):
     values: set[SetLiteral]
 
     def contains(self, value: SetLiteral) -> bool:
-        # TODO[@zmeadows][P1]: rethink bool behavior here and capture in test suite
         if isinstance(value, bool):
             # Require exact identity match for bools
             return any(v is value for v in self.values)

@@ -10,6 +10,9 @@ from typing import Any, TypeAlias
 from tasklattice._paths import AbsDir, RelPath, UserPath
 from tasklattice.constants import RUN_METADATA_DIR
 
+# TODO[@zmeadows][P1]: prevent *any* user paths pointing into RUN_METADATA_DIR
+
+
 # TODO[@zmeadows][P3]: Figure out where/when to validate file encodings
 # TODO[@zmeadows][P3]: what if prototype directory gets modified during the
 # course of a TaskLattice script...?
@@ -44,6 +47,7 @@ class RenderSpec:
 class LinkMode(StrEnum):
     """How to materialize files copied from the prototype tree."""
 
+    # TODO[@zmeadows][P0]: detect failed symlinking (permissions) or hardlinking (different drives)
     COPY = "copy"  # shutil.copy2 (portable; preserves mtime/metadata)
     SYMLINK = "symlink"  # symlink to prototype (fast; requires perms on Windows)
     HARDLINK = "hardlink"  # hardlink to prototype (fast; same filesystem only)
@@ -84,6 +88,8 @@ class RunPlan:
     # Constant provenance copied into each run's metadata (same across variations)
     meta: Mapping[str, Any]
 
+    # TODO[@zmeadows][P3]: `explain` method ala Lattice.explain
+
     def __init__(
         self,
         name: str,
@@ -102,6 +108,7 @@ class RunPlan:
         # TODO[@zmeadows][P0]: (partially) validate runs_root here
         object.__setattr__(self, "runs_root", AbsDir.normalized(runs_root_user_path))
 
+        # TODO[@zmeadows][P3]: hash the prototype_dir contents and detect un-expected changes
         prototype_dir = AbsDir.existing(prototype_dir_user_path)
         object.__setattr__(self, "prototype_dir", prototype_dir)
 

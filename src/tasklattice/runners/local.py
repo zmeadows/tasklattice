@@ -576,6 +576,7 @@ class LocalRunner(Runner):
             handle._cancel_requested = True
             proc = rec.handle._proc
             try:
+                # TODO[@zmeadows][P0]: clarify run file updates (status should be CANCELLED)
                 _terminate_with_grace(proc, grace_s=grace_s, force=force)
             finally:
                 # Wake the monitor so it can notice state changes promptly.
