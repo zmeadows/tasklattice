@@ -6,6 +6,7 @@ import json
 import math
 import os
 import shutil
+import sys
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -460,14 +461,15 @@ def _write_files_json_streaming(run_dir: Path, records: Iterable[FileRecord]) ->
     # make the rename durable too
     os.replace(tmp, path)
 
-    try:
-        dir_fd = os.open(str(meta_dir(run_dir)), os.O_DIRECTORY)
+    if sys.platform != "win32":
         try:
-            os.fsync(dir_fd)
-        finally:
-            os.close(dir_fd)
-    except Exception:
-        pass  # best-effort on platforms that support it
+            dir_fd = os.open(str(meta_dir(run_dir)), os.O_DIRECTORY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except Exception:
+            pass  # best-effort on platforms that support it
 
 
 def _copy_tree(
