@@ -65,6 +65,20 @@ FetchContent_Declare(
   GIT_TAG 0.8.0)
 FetchContent_MakeAvailable(yaml_cpp)
 
+# target: pugixml::pugixml
+set(PUGIXML_BUILD_TESTS
+    OFF
+    CACHE BOOL "" FORCE)
+set(PUGIXML_BUILD_SAMPLES
+    OFF
+    CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+  pugixml
+  GIT_REPOSITORY https://github.com/zeux/pugixml.git
+  GIT_TAG v1.15)
+FetchContent_MakeAvailable(pugixml)
+
 # --- Exe ----------------------------------------------------------------------
 add_executable(mandel_cli ${CPP_MANDEL_CLI_SOURCES})
 
@@ -73,6 +87,7 @@ target_compile_features(mandel_cli PRIVATE cxx_std_20)
 target_link_libraries(mandel_cli PRIVATE mandel nlohmann_json::nlohmann_json)
 target_link_libraries(mandel_cli PRIVATE tomlplusplus::tomlplusplus)
 target_link_libraries(mandel_cli PRIVATE yaml-cpp)
+target_link_libraries(mandel_cli PRIVATE pugixml::pugixml)
 
 # --- Misc ---------------------------------------------------------------------
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CPP_MANDEL_ALL_FILES})
