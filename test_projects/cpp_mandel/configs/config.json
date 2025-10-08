@@ -5,5 +5,5 @@
   "center_y": 0.0,
   "scale": 0.003,
   "max-iters": 180,
-  "out": "mandel_from_json_config.csv"
+  "out": "mandel_from_json.csv"
 }

@@ -34,16 +34,27 @@ endif()
 # --- External Dependencies ----------------------------------------------------
 include(FetchContent)
 
+# nlohmann_json::nlohmann_json
 FetchContent_Declare(
   nlohmann_json
   GIT_REPOSITORY https://github.com/nlohmann/json.git
   GIT_TAG v3.11.3)
 FetchContent_MakeAvailable(nlohmann_json)
 
+# tomlplusplus::tomlplusplus
+FetchContent_Declare(
+  tomlplusplus
+  GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
+  GIT_TAG v3.4.0)
+FetchContent_MakeAvailable(tomlplusplus)
+
 # --- Exe ----------------------------------------------------------------------
 add_executable(mandel_cli ${CPP_MANDEL_CLI_SOURCES})
-target_link_libraries(mandel_cli PRIVATE mandel nlohmann_json::nlohmann_json)
+
 target_compile_features(mandel_cli PRIVATE cxx_std_20)
+
+target_link_libraries(mandel_cli PRIVATE mandel nlohmann_json::nlohmann_json)
+target_link_libraries(mandel_cli PRIVATE tomlplusplus::tomlplusplus)
 
 # --- Misc ---------------------------------------------------------------------
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CPP_MANDEL_ALL_FILES})
