@@ -13,22 +13,16 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # --- File lists ---------------------------------------------------------------
 set(CPP_MANDEL_HEADERS include/mandel/core.hpp)
-
 set(CPP_MANDEL_CORE_SOURCES src/core.cpp)
-
 set(CPP_MANDEL_CLI_SOURCES src/cli_main.cpp)
-
-# Combine for convenience
 set(CPP_MANDEL_ALL_FILES ${CPP_MANDEL_HEADERS} ${CPP_MANDEL_CORE_SOURCES}
                          ${CPP_MANDEL_CLI_SOURCES})
 
 # --- Library ------------------------------------------------------------------
 add_library(mandel STATIC ${CPP_MANDEL_CORE_SOURCES} ${CPP_MANDEL_HEADERS})
-
 target_include_directories(
   mandel PUBLIC $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
                 $<INSTALL_INTERFACE:include>)
-
 target_compile_features(mandel PUBLIC cxx_std_20)
 
 if(MSVC)
@@ -37,11 +31,18 @@ else()
   target_compile_options(mandel PRIVATE -Wall -Wextra -Wpedantic -Wconversion)
 endif()
 
+# --- External Dependencies ----------------------------------------------------
+include(FetchContent)
+
+FetchContent_Declare(
+  nlohmann_json
+  GIT_REPOSITORY https://github.com/nlohmann/json.git
+  GIT_TAG v3.11.3)
+FetchContent_MakeAvailable(nlohmann_json)
+
 # --- Exe ----------------------------------------------------------------------
 add_executable(mandel_cli ${CPP_MANDEL_CLI_SOURCES})
-
-target_link_libraries(mandel_cli PRIVATE mandel)
-
+target_link_libraries(mandel_cli PRIVATE mandel nlohmann_json::nlohmann_json)
 target_compile_features(mandel_cli PRIVATE cxx_std_20)
 
 # --- Misc ---------------------------------------------------------------------

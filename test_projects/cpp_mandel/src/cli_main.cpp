@@ -1,10 +1,14 @@
-#include <mandel/core.hpp>
+#include "mandel/core.hpp"
 
+#include <fstream>
 #include <iostream>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 using std::string;
 using std::string_view;
@@ -15,6 +19,7 @@ struct ArgSpec {
   string out_path = "mandelbrot.csv";
   mandel::Params p;
   bool show_help = false;
+  std::optional<string> config_path{};
 };
 
 bool starts_with(string_view s, string_view prefix) {
@@ -31,18 +36,57 @@ std::optional<string_view> value_for(string_view arg, string_view name) {
 }
 
 void print_help(const char *argv0) {
-  std::cout << "cppsim_cli - minimal Mandelbrot CSV generator\n\n"
+  std::cout << "mandel_cli - minimal Mandelbrot CSV generator\n\n"
                "Usage:\n"
                "  "
             << argv0
-            << " [--width N] [--height N]\n"
+            << " [--config file.json]\n"
+               "                 [--width N] [--height N]\n"
                "                 [--center-x X] [--center-y Y]\n"
                "                 [--scale S] [--max-iters N]\n"
                "                 [--out PATH]\n\n"
+               "Notes:\n"
+               "  Config values provide defaults; CLI flags override them.\n\n"
                "Defaults:\n"
                "  --width 300  --height 200  --center-x -0.75  --center-y 0.0\n"
                "  --scale 0.003  --max-iters 200  --out mandelbrot.csv\n";
 }
+
+// ---- JSON config helpers
+// -----------------------------------------------------
+
+template <class T>
+void maybe_set2(const nlohmann::json &j, const char *k1, const char *k2,
+                T &dst) {
+  if (j.contains(k1))
+    dst = j.at(k1).get<T>();
+  else if (j.contains(k2))
+    dst = j.at(k2).get<T>();
+}
+
+void apply_json_config(const nlohmann::json &j, ArgSpec &a) {
+  // Support both underscore and dash keys, e.g., center_x / center-x
+  maybe_set2(j, "width", "width", a.p.width);
+  maybe_set2(j, "height", "height", a.p.height);
+  maybe_set2(j, "center_x", "center-x", a.p.center_x);
+  maybe_set2(j, "center_y", "center-y", a.p.center_y);
+  maybe_set2(j, "scale", "scale", a.p.scale);
+  maybe_set2(j, "max_iters", "max-iters", a.p.max_iters);
+  if (j.contains("out"))
+    a.out_path = j.at("out").get<string>();
+}
+
+nlohmann::json load_json_file(const string &path) {
+  std::ifstream f(path);
+  if (!f)
+    throw std::runtime_error("Failed to open config: " + path);
+  nlohmann::json j;
+  f >> j; // expects strict JSON (no comments)
+  return j;
+}
+
+// ---- CLI parsing
+// -------------------------------------------------------------
 
 int parse_int(string_view sv, const char *name) {
   try {
@@ -64,11 +108,42 @@ double parse_double(string_view sv, const char *name) {
 
 ArgSpec parse_args(int argc, char **argv) {
   ArgSpec a;
+
+  // Pass 1: find --config and apply it as defaults (before other flags).
+  for (int i = 1; i < argc; ++i) {
+    string_view cur(argv[i]);
+
+    auto take_next = [&](const char *name) -> string {
+      if (i + 1 >= argc)
+        throw std::runtime_error(string("Missing value for ") + name);
+      return string(argv[++i]);
+    };
+
+    if (cur == "--config") {
+      a.config_path = take_next("--config");
+    } else if (auto v = value_for(cur, "--config")) {
+      a.config_path = string(*v);
+    }
+  }
+  if (a.config_path) {
+    auto j = load_json_file(*a.config_path);
+    if (!j.is_object())
+      throw std::runtime_error("Config root must be a JSON object");
+    apply_json_config(j, a);
+  }
+
+  // Pass 2: parse/override with regular flags.
   for (int i = 1; i < argc; ++i) {
     string_view cur(argv[i]);
 
     if (cur == "--help" || cur == "-h") {
       a.show_help = true;
+      continue;
+    }
+    if (cur == "--config" || starts_with(cur, "--config=")) {
+      // already handled in pass 1
+      if (cur == "--config")
+        ++i; // skip the value
       continue;
     }
 
@@ -77,7 +152,6 @@ ArgSpec parse_args(int argc, char **argv) {
         throw std::runtime_error(string("Missing value for ") + name);
       return string_view(argv[++i]);
     };
-
     auto parse_opt = [&](string_view name, auto setter) {
       if (auto v = value_for(cur, name)) {
         setter(*v);
@@ -116,6 +190,7 @@ ArgSpec parse_args(int argc, char **argv) {
 
     throw std::runtime_error("Unknown argument: " + string(cur));
   }
+
   if (a.p.width <= 0 || a.p.height <= 0) {
     throw std::runtime_error("width/height must be positive.");
   }
