@@ -461,6 +461,7 @@ def _write_files_json_streaming(run_dir: Path, records: Iterable[FileRecord]) ->
     # make the rename durable too
     os.replace(tmp, path)
 
+    # TODO[@zmeadows][P1]: move this into the platform layer
     if sys.platform != "win32":
         try:
             dir_fd = os.open(str(meta_dir(run_dir)), os.O_DIRECTORY)
