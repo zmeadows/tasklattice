@@ -34,19 +34,36 @@ endif()
 # --- External Dependencies ----------------------------------------------------
 include(FetchContent)
 
-# nlohmann_json::nlohmann_json
+# target: nlohmann_json::nlohmann_json
 FetchContent_Declare(
   nlohmann_json
   GIT_REPOSITORY https://github.com/nlohmann/json.git
   GIT_TAG v3.11.3)
 FetchContent_MakeAvailable(nlohmann_json)
 
-# tomlplusplus::tomlplusplus
+# target: tomlplusplus::tomlplusplus
 FetchContent_Declare(
   tomlplusplus
   GIT_REPOSITORY https://github.com/marzer/tomlplusplus.git
   GIT_TAG v3.4.0)
 FetchContent_MakeAvailable(tomlplusplus)
+
+# target: yaml-cpp
+set(YAML_BUILD_SHARED_LIBS
+    OFF
+    CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TESTS
+    OFF
+    CACHE BOOL "" FORCE)
+set(YAML_CPP_BUILD_TOOLS
+    OFF
+    CACHE BOOL "" FORCE)
+
+FetchContent_Declare(
+  yaml_cpp
+  GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
+  GIT_TAG 0.8.0)
+FetchContent_MakeAvailable(yaml_cpp)
 
 # --- Exe ----------------------------------------------------------------------
 add_executable(mandel_cli ${CPP_MANDEL_CLI_SOURCES})
@@ -55,6 +72,7 @@ target_compile_features(mandel_cli PRIVATE cxx_std_20)
 
 target_link_libraries(mandel_cli PRIVATE mandel nlohmann_json::nlohmann_json)
 target_link_libraries(mandel_cli PRIVATE tomlplusplus::tomlplusplus)
+target_link_libraries(mandel_cli PRIVATE yaml-cpp)
 
 # --- Misc ---------------------------------------------------------------------
 source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CPP_MANDEL_ALL_FILES})

@@ -1,5 +1,6 @@
 #include "mandel/core.hpp"
 
+#include <cctype> // tolower
 #include <fstream>
 #include <iostream>
 #include <optional>
@@ -10,6 +11,7 @@
 
 #include <nlohmann/json.hpp>
 #include <toml++/toml.h>
+#include <yaml-cpp/yaml.h>
 
 using std::string;
 using std::string_view;
@@ -40,7 +42,7 @@ void print_help(const char *argv0) {
                "Usage:\n"
                "  "
             << argv0
-            << " [--config file.{json,toml}]\n"
+            << " [--config file.{json,toml,yaml,yml}]\n"
                "                 [--width N] [--height N]\n"
                "                 [--center-x X] [--center-y Y]\n"
                "                 [--scale S] [--max-iters N]\n"
@@ -82,12 +84,11 @@ nlohmann::json load_json_file(const string &path) {
   if (!f)
     throw std::runtime_error("Failed to open config: " + path);
   nlohmann::json j;
-  f >> j;
+  f >> j; // strict JSON (no comments)
   return j;
 }
 
-// ------------------------- TOML config helpers
-// --------------------------------
+// ------------------------- TOML config helpers -------------------------------
 
 template <class T>
 void toml_maybe_set2(const toml::table &t, const char *k1, const char *k2,
@@ -99,8 +100,6 @@ void toml_maybe_set2(const toml::table &t, const char *k1, const char *k2,
 }
 
 void apply_toml_config(const toml::table &t, ArgSpec &a) {
-  // Support both underscore and dash keys; in TOML, dashed keys must be quoted
-  // in the file.
   toml_maybe_set2(t, "width", "width", a.p.width);
   toml_maybe_set2(t, "height", "height", a.p.height);
   toml_maybe_set2(t, "center_x", "center-x", a.p.center_x);
@@ -115,7 +114,43 @@ toml::table load_toml_file(const string &path) {
   try {
     return toml::parse_file(path);
   } catch (const toml::parse_error &e) {
+    // Avoid use of source_location or string_view to keep portability
     throw std::runtime_error(std::string("TOML parse error: "));
+  }
+}
+
+// ------------------------- YAML config helpers -------------------------------
+
+template <class T>
+void yaml_maybe_set2(const YAML::Node &n, const char *k1, const char *k2,
+                     T &dst) {
+  if (auto v = n[k1])
+    dst = v.as<T>();
+  else if (auto v2 = n[k2])
+    dst = v2.as<T>();
+}
+
+void apply_yaml_config(const YAML::Node &n, ArgSpec &a) {
+  if (!n || !n.IsMap())
+    throw std::runtime_error("YAML config root must be a mapping/object");
+  // Accept underscore or dash keys (YAML allows unquoted dashed keys)
+  yaml_maybe_set2(n, "width", "width", a.p.width);
+  yaml_maybe_set2(n, "height", "height", a.p.height);
+  yaml_maybe_set2(n, "center_x", "center-x", a.p.center_x);
+  yaml_maybe_set2(n, "center_y", "center-y", a.p.center_y);
+  yaml_maybe_set2(n, "scale", "scale", a.p.scale);
+  yaml_maybe_set2(n, "max_iters", "max-iters", a.p.max_iters);
+  if (auto v = n["out"])
+    a.out_path = v.as<string>();
+}
+
+YAML::Node load_yaml_file(const string &path) {
+  try {
+    return YAML::LoadFile(path);
+  } catch (const YAML::ParserException &e) {
+    throw std::runtime_error(std::string("YAML parse error: ") + e.what());
+  } catch (const YAML::BadFile &e) {
+    throw std::runtime_error(std::string("YAML file error: ") + e.what());
   }
 }
 
@@ -163,15 +198,21 @@ ArgSpec parse_args(int argc, char **argv) {
     }
   }
   if (a.config_path) {
-    auto ext =
-        to_lower(a.config_path->substr(a.config_path->find_last_of('.') + 1));
+    auto dot = a.config_path->find_last_of('.');
+    if (dot == string::npos)
+      throw std::runtime_error("Missing extension for --config: " +
+                               *a.config_path);
+    auto ext = to_lower(a.config_path->substr(dot + 1));
     if (ext == "json") {
       apply_json_config(load_json_file(*a.config_path), a);
     } else if (ext == "toml") {
       apply_toml_config(load_toml_file(*a.config_path), a);
+    } else if (ext == "yaml" || ext == "yml") {
+      apply_yaml_config(load_yaml_file(*a.config_path), a);
     } else {
-      throw std::runtime_error("Unsupported config extension for --config: " +
-                               *a.config_path + " (expected .json or .toml)");
+      throw std::runtime_error(
+          "Unsupported config extension for --config: " + *a.config_path +
+          " (expected .json, .toml, .yaml or .yml)");
     }
   }
 
