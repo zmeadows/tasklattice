@@ -1,3 +1,4 @@
+---
 name: cpp_mandel (build + smoke)
 
 defaults:
@@ -9,15 +10,15 @@ on:
 
   push:
     branches:
-    - master
+      - master
     paths:
-    - 'test_projects/cpp_mandel/**'
+      - "test_projects/cpp_mandel/**"
 
   pull_request:
     branches:
-    - master
+      - master
     paths:
-    - 'test_projects/cpp_mandel/**'
+      - "test_projects/cpp_mandel/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event_name }}
@@ -33,15 +34,13 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: jwlawson/actions-setup-cmake@v2
-        with:
-          cmake-version: '3.29.x'
-
-      - uses: ashutoshvarma/setup-ninja@v1
-        with:
-          version: '1.11.1'
+      - name: Show tool versions
+        run: |
+          ninja --version
+          cmake --version
 
       - name: CMake Configure
         run: cmake --preset ci-release
