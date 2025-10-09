@@ -5,7 +5,9 @@ defaults:
   run:
     working-directory: ./test_projects/cpp_mandel
 
-on: [push, pull_request, workflow_dispatch]
+on:
+  workflow_call: {}
+  workflow_dispatch: {}
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event_name }}
