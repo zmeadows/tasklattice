@@ -47,13 +47,13 @@ endif()
 # ---- build the command line --------------------------------------------------
 # Always pass width/height/max-iters/out to keep the run tiny and fast. If
 # CONFIG is provided, we put it first; CLI flags still override config values.
-set(cmd "${CLI}")
+set(launch_cmd "${CLI}")
 if(DEFINED CONFIG AND NOT CONFIG STREQUAL "")
-  list(APPEND cmd --config "${CONFIG}")
+  list(APPEND launch_cmd --config "${CONFIG}")
 endif()
 list(
   APPEND
-  cmd
+  launch_cmd
   --width
   "${WIDTH}"
   --height
@@ -66,7 +66,7 @@ list(
 # ---- run the CLI -------------------------------------------------------------
 # We capture stdout/stderr and return code for helpful failure messages.
 execute_process(
-  COMMAND ${cmd}
+  COMMAND ${launch_cmd}
   RESULT_VARIABLE run_rv
   OUTPUT_VARIABLE run_out
   ERROR_VARIABLE run_err)
@@ -75,7 +75,8 @@ if(NOT run_rv EQUAL 0)
   message(
     FATAL_ERROR
       "mandel_cli exited with non-zero status (${run_rv})\n"
-      "Command : ${cmd}\n" "STDOUT  :\n${run_out}\n" "STDERR  :\n${run_err}\n")
+      "Command : ${launch_cmd}\n" "STDOUT  :\n${run_out}\n"
+      "STDERR  :\n${run_err}\n")
 endif()
 
 # ---- validate CSV exists -----------------------------------------------------
@@ -93,25 +94,25 @@ if(LINE_COUNT LESS 1)
 endif()
 
 # ---- header must match exactly -----------------------------------------------
-list(GET LINES 0 HEADER)
-if(NOT HEADER STREQUAL "px,py,x,y")
+list(GET LINES 0 header)
+if(NOT header STREQUAL "px,py,x,y")
   message(FATAL_ERROR "CSV header mismatch.\n" "Expected: px,py,x,y\n"
-                      "Actual  : ${HEADER}\n" "File    : ${OUT}")
+                      "Actual  : ${header}\n" "File    : ${OUT}")
 endif()
 
 # ---- number of data rows must equal width*height -----------------------------
-math(EXPR PIXELS "${WIDTH} * ${HEIGHT}")
-math(EXPR DATA_ROWS "${LINE_COUNT} - 1")
+math(EXPR pixels "${WIDTH} * ${HEIGHT}")
+math(EXPR data_rows "${LINE_COUNT} - 1")
 
-if(NOT DATA_ROWS EQUAL PIXELS)
+if(NOT data_rows EQUAL pixels)
   message(
     FATAL_ERROR
       "CSV row count mismatch.\n"
-      "Expected data rows: ${PIXELS} (width*height = ${WIDTH}*${HEIGHT})\n"
-      "Actual data rows  : ${DATA_ROWS}\n"
+      "Expected data rows: ${pixels} (width*height = ${WIDTH}*${HEIGHT})\n"
+      "Actual data rows  : ${data_rows}\n"
       "Total lines       : ${LINE_COUNT} (includes 1 header)\n"
       "File              : ${OUT}")
 endif()
 
 # ---- success -----------------------------------------------------------------
-message(STATUS "Smoke OK: ${OUT}  (${WIDTH}x${HEIGHT} -> ${DATA_ROWS} rows)")
+message(STATUS "Smoke OK: ${OUT}  (${WIDTH}x${HEIGHT} -> ${data_rows} rows)")

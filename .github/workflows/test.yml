@@ -1,4 +1,4 @@
-name: CI (lint • type • test)
+name: CI (lint + type + test)
 
 on:
   push:
