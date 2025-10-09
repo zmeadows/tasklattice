@@ -50,7 +50,18 @@ jobs:
         run: cmake --build --preset ci-release
 
       - name: CTest
-        run: ctest --test-dir out/build/ci-release
+        run: |
+          ctest --test-dir out/build/ci-release \
+                --output-on-failure -j 2 \
+                --output-junit ctest-junit.xml
+
+      - name: Upload CTest artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-${{ matrix.os }}
+          path: |
+            out/build/ci-release/Testing
+            out/build/ci-release/ctest-junit.xml
 
       - name: sccache stats
         if: always()
