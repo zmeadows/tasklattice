@@ -1,26 +1,19 @@
 ---
-name: cpp_mandel (build + smoke)
+name: Test Projects (build + smoke)
 
 defaults:
   run:
     shell: bash
     working-directory: ./test_projects/cpp_mandel
 
-on:
-  workflow_dispatch:
-  push:
-    branches: [master]
-    paths: ["test_projects/cpp_mandel/**"]
-  pull_request:
-    branches: [master]
-    paths: ["test_projects/cpp_mandel/**"]
+on: [push, pull_request, workflow_dispatch]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
-  build-and-smoke:
+  cpp_mandel:
     strategy:
       fail-fast: false
       matrix:

@@ -1,5 +1,5 @@
 ---
-name: CI (lint + type + test)
+name: TaskLattice (lint + type + test)
 
 defaults:
   run:
