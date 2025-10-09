@@ -1,0 +1,47 @@
+{
+  "version": 5,
+
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+
+  "configurePresets": [
+    {
+      "name": "dev",
+      "displayName": "dev (Ninja, RelWithDebInfo)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/dev",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+    {
+      "name": "ci-release",
+      "displayName": "ci-release (Ninja, Release)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/out/build/ci-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    {
+      "name": "dev",
+      "displayName": "Build (dev)",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "ci-release",
+      "displayName": "Build (ci-release)",
+      "configurePreset": "ci-release"
+    }
+  ],
+
+  "testPresets": []
+}

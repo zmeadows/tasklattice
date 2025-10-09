@@ -1,0 +1,9 @@
+{
+  "width": 150,
+  "height": 80,
+  "center_x": -0.75,
+  "center_y": 0.0,
+  "scale": 0.003,
+  "max-iters": 180,
+  "out": "mandel_from_json.csv"
+}
