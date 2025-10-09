@@ -40,7 +40,7 @@ include(FetchContent)
 FetchContent_Declare(
   nlohmann_json
   GIT_REPOSITORY https://github.com/nlohmann/json.git
-  GIT_TAG v3.11.3)
+  GIT_TAG v3.12.0)
 FetchContent_MakeAvailable(nlohmann_json)
 
 # target: tomlplusplus::tomlplusplus
@@ -64,7 +64,7 @@ set(YAML_CPP_BUILD_TOOLS
 FetchContent_Declare(
   yaml_cpp
   GIT_REPOSITORY https://github.com/jbeder/yaml-cpp.git
-  GIT_TAG 0.8.0)
+  GIT_TAG master)
 FetchContent_MakeAvailable(yaml_cpp)
 
 # target: pugixml::pugixml
