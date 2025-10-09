@@ -77,6 +77,9 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(yaml_cpp)
 
 # target: pugixml::pugixml
+set(PUGIXML_BUILD_SHARED
+    OFF
+    CACHE BOOL "" FORCE)
 set(PUGIXML_BUILD_TESTS
     OFF
     CACHE BOOL "" FORCE)
