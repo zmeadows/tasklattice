@@ -3,7 +3,6 @@ name: Test Projects (build + smoke)
 
 defaults:
   run:
-    shell: bash
     working-directory: ./test_projects/cpp_mandel
 
 on: [push, pull_request, workflow_dispatch]
@@ -18,17 +17,29 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: windows-latest
+            cmake_preset: ci-release-windows
+          - os: ubuntu-latest
+            cmake_preset: ci-release
+          - os: macos-latest
+            cmake_preset: ci-release
 
     runs-on: ${{ matrix.os }}
 
+    defaults:
+      run:
+        shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
+
     env:
       SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_CACHE_SIZE: "2G"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Enable sccache
+      - name: sccache [setup/enable]
         uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Show tool versions
@@ -37,41 +48,33 @@ jobs:
           cmake --version
           sccache --version
 
-      - name: CMake Configure
-        run: cmake --preset ci-release
-
-      - name: CMake Build
-        run: cmake --build --preset ci-release
-
-      - name: Setup MSVC Developer Command Prompt
+      - name: MSVC [setup/env]
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x64
 
-      - name: Check EXE deps (Windows)
-        if: runner.os == 'Windows'
-        shell: cmd
-        working-directory: ${{ github.workspace }}\test_projects\cpp_mandel\out\build\ci-release
-        run: |
-          where mandel_cli.exe || exit /b 1
-          where dumpbin || (echo dumpbin not found & exit /b 1)
-          dumpbin /DEPENDENTS mandel_cli.exe
+      - name: CMake [list presets]
+        run: cmake --list-presets=all
 
-      - name: CTest
-        run: |
-          ctest --test-dir out/build/ci-release \
-                --output-on-failure -j 2 \
-                --output-junit ctest-junit.xml
+      - name: CMake [configure]
+        run: cmake --preset ${{ matrix.cmake_preset }}
 
-      - name: Upload CTest artifacts
+      - name: CMake [build]
+        run: cmake --build --preset ${{ matrix.cmake_preset }}
+
+      - name: CTest [run]
+        run: ctest --preset ${{ matrix.cmake_preset }}
+
+      - name: CTest [upload artifacts]
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ctest-${{ matrix.os }}
           path: |
-            out/build/ci-release/Testing
-            out/build/ci-release/ctest-junit.xml
+            test_projects/cpp_mandel/out/build/ci-release/Testing
+            test_projects/cpp_mandel/out/build/ci-release/ctest-junit.xml
 
-      - name: sccache stats
+      - name: sccache [statistics]
         if: always()
         run: sccache --show-stats
