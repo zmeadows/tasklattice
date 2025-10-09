@@ -7,18 +7,12 @@ defaults:
 
 on:
   workflow_dispatch:
-
   push:
-    branches:
-      - master
-    paths:
-      - "test_projects/cpp_mandel/**"
-
+    branches: [master]
+    paths: ["test_projects/cpp_mandel/**"]
   pull_request:
-    branches:
-      - master
-    paths:
-      - "test_projects/cpp_mandel/**"
+    branches: [master]
+    paths: ["test_projects/cpp_mandel/**"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event_name }}
@@ -33,17 +27,31 @@ jobs:
 
     runs-on: ${{ matrix.os }}
 
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Enable sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Show tool versions
         run: |
           ninja --version
           cmake --version
+          sccache --version
 
       - name: CMake Configure
         run: cmake --preset ci-release
 
       - name: CMake Build
         run: cmake --build --preset ci-release
+
+      - name: CTest
+        run: ctest --test-dir out/build/ci-release
+
+      - name: sccache stats
+        if: always()
+        run: sccache --show-stats

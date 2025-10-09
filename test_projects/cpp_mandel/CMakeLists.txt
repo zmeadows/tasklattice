@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.20...3.30)
 
 project(
   cpp_mandel
@@ -10,6 +10,15 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+if(POLICY CMP0141)
+  cmake_policy(SET CMP0141 NEW)
+endif()
+
+if(MSVC)
+  # Enable embedded debug info for MSVC so sccache can cache objects
+  set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT Embedded)
+endif()
 
 # --- File lists ---------------------------------------------------------------
 set(CPP_MANDEL_HEADERS include/mandel/core.hpp)
