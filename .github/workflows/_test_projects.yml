@@ -43,6 +43,15 @@ jobs:
       - name: CMake Build
         run: cmake --build --preset ci-release
 
+      - name: Check EXE deps (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        working-directory: ${{ github.workspace }}\test_projects\cpp_mandel\out\build\ci-release
+        run: |
+          where mandel_cli.exe || exit /b 1
+          where dumpbin || (echo dumpbin not found & exit /b 1)
+          dumpbin /DEPENDENTS mandel_cli.exe
+
       - name: CTest
         run: |
           ctest --test-dir out/build/ci-release \
