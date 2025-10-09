@@ -1,17 +1,8 @@
 ---
 name: Test Projects (build + smoke)
 
-defaults:
-  run:
-    working-directory: ./test_projects/cpp_mandel
-
 on:
-  workflow_call: {}
-  workflow_dispatch: {}
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event_name }}
-  cancel-in-progress: true
+  workflow_call:
 
 jobs:
   cpp_mandel:
@@ -31,7 +22,8 @@ jobs:
 
     defaults:
       run:
-        shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
+        shell: ${{ startsWith(matrix.os, 'windows') && 'pwsh' || 'bash' }}
+        working-directory: ./test_projects/cpp_mandel
 
     env:
       SCCACHE_GHA_ENABLED: "true"

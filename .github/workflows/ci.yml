@@ -1,10 +1,22 @@
 ---
 name: CI
-on: [push, pull_request, workflow_dispatch]
-jobs:
-  test_projects:
-    uses: ./.github/workflows/_test_projects.yml
 
-  tasklattice:
-    needs: test_projects
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  call_test_projects:
+    name: Test Projects
+    uses: ./.github/workflows/_test_projects.yml
+    secrets: inherit
+
+  call_tasklattice:
+    name: TaskLattice
+    needs: call_test_projects
     uses: ./.github/workflows/_tasklattice.yml
+    secrets: inherit
