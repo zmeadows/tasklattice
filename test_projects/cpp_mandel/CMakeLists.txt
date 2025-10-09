@@ -6,6 +6,7 @@ project(
   DESCRIPTION "Tiny C++20 Mandelbrot CLI producing a CSV"
   LANGUAGES CXX)
 
+set(BUILD_SHARED_LIBS OFF)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
@@ -15,9 +16,16 @@ if(POLICY CMP0141)
   cmake_policy(SET CMP0141 NEW)
 endif()
 
+if(POLICY CMP0091)
+  cmake_policy(SET CMP0091 NEW)
+endif()
+
 if(MSVC)
   # Enable embedded debug info for MSVC so sccache can cache objects
   set(CMAKE_MSVC_DEBUG_INFORMATION_FORMAT Embedded)
+
+  # Static runtime: /MT (Release) and /MTd (Debug)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 # --- File lists ---------------------------------------------------------------
@@ -98,10 +106,12 @@ add_executable(mandel_cli ${CPP_MANDEL_CLI_SOURCES})
 
 target_compile_features(mandel_cli PRIVATE cxx_std_20)
 
-target_link_libraries(mandel_cli PRIVATE mandel nlohmann_json::nlohmann_json)
-target_link_libraries(mandel_cli PRIVATE tomlplusplus::tomlplusplus)
-target_link_libraries(mandel_cli PRIVATE yaml-cpp)
-target_link_libraries(mandel_cli PRIVATE pugixml::pugixml)
+target_link_libraries(
+  mandel_cli PRIVATE mandel nlohmann_json::nlohmann_json
+                     tomlplusplus::tomlplusplus yaml-cpp pugixml::pugixml)
+
+target_compile_definitions(mandel PRIVATE YAML_CPP_STATIC_DEFINE)
+target_compile_definitions(mandel_cli PRIVATE YAML_CPP_STATIC_DEFINE)
 
 # --- CTest --------------------------------------------------------------------
 include(CTest)
