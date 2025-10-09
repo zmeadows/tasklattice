@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
 
   "cmakeMinimumRequired": {
     "major": 3,
@@ -69,13 +69,12 @@
         "outputOnFailure": true,
         "outputJUnitFile": "ctest-junit.xml"
       },
-      "jobs": 2,
       "execution": { "noTestsAction": "error" }
     },
     {
       "name": "ci-release-windows",
       "displayName": "CTest (ci windows)",
-      "inherits": "ci",
+      "inherits": "ci-release",
       "configurePreset": "ci-release-windows"
     }
   ]

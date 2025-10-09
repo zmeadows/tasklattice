@@ -1,16 +1,8 @@
 ---
 name: TaskLattice (lint + type + test)
 
-defaults:
-  run:
-    shell: bash
-
 on:
-  workflow_call: {}
-
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  workflow_call:
 
 jobs:
   lint-type-test:
@@ -20,6 +12,10 @@ jobs:
         python-version: ["3.11", "3.12"]
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: bash
 
     steps:
       - name: Checkout
