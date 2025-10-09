@@ -3,6 +3,7 @@ name: cpp_mandel (build + smoke)
 
 defaults:
   run:
+    shell: bash
     working-directory: ./test_projects/cpp_mandel
 
 on:
