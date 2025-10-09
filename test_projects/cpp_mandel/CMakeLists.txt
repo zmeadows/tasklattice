@@ -18,6 +18,8 @@ set(CPP_MANDEL_CLI_SOURCES src/cli_main.cpp)
 set(CPP_MANDEL_ALL_FILES ${CPP_MANDEL_HEADERS} ${CPP_MANDEL_CORE_SOURCES}
                          ${CPP_MANDEL_CLI_SOURCES})
 
+source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CPP_MANDEL_ALL_FILES})
+
 # --- Library ------------------------------------------------------------------
 add_library(mandel STATIC ${CPP_MANDEL_CORE_SOURCES} ${CPP_MANDEL_HEADERS})
 target_include_directories(
@@ -89,5 +91,8 @@ target_link_libraries(mandel_cli PRIVATE tomlplusplus::tomlplusplus)
 target_link_libraries(mandel_cli PRIVATE yaml-cpp)
 target_link_libraries(mandel_cli PRIVATE pugixml::pugixml)
 
-# --- Misc ---------------------------------------------------------------------
-source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR} FILES ${CPP_MANDEL_ALL_FILES})
+# --- CTest --------------------------------------------------------------------
+include(CTest)
+if(BUILD_TESTING)
+  add_subdirectory(tests)
+endif()
