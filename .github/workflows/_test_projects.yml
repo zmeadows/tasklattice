@@ -1,0 +1,82 @@
+---
+name: Test Projects (build + smoke)
+
+defaults:
+  run:
+    working-directory: ./test_projects/cpp_mandel
+
+on:
+  workflow_call: {}
+  workflow_dispatch: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  cpp_mandel:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: windows-latest
+            cmake_preset: ci-release-windows
+          - os: ubuntu-latest
+            cmake_preset: ci-release
+          - os: macos-latest
+            cmake_preset: ci-release
+
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
+
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      SCCACHE_CACHE_SIZE: "2G"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: sccache [setup/enable]
+        uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Show tool versions
+        run: |
+          ninja --version
+          cmake --version
+          sccache --version
+
+      - name: MSVC [setup/env]
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: CMake [list presets]
+        run: cmake --list-presets=all
+
+      - name: CMake [configure]
+        run: cmake --preset ${{ matrix.cmake_preset }}
+
+      - name: CMake [build]
+        run: cmake --build --preset ${{ matrix.cmake_preset }}
+
+      - name: CTest [run]
+        run: ctest --preset ${{ matrix.cmake_preset }}
+
+      - name: CTest [upload artifacts]
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-${{ matrix.os }}
+          path: |
+            test_projects/cpp_mandel/out/build/ci-release/Testing
+            test_projects/cpp_mandel/out/build/ci-release/ctest-junit.xml
+
+      - name: sccache [statistics]
+        if: always()
+        run: sccache --show-stats

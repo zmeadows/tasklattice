@@ -29,6 +29,16 @@
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
+    },
+    {
+      "name": "ci-release-windows",
+      "inherits": "ci-release",
+      "cacheVariables": {
+        "CMAKE_C_COMPILER": "cl",
+        "CMAKE_CXX_COMPILER": "cl",
+        "CMAKE_MSVC_RUNTIME_LIBRARY": "MultiThreaded$<$<CONFIG:Debug>:Debug>",
+        "CMAKE_MSVC_DEBUG_INFORMATION_FORMAT": "Embedded"
+      }
     }
   ],
 
@@ -42,8 +52,31 @@
       "name": "ci-release",
       "displayName": "Build (ci-release)",
       "configurePreset": "ci-release"
+    },
+    {
+      "name": "ci-release-windows",
+      "displayName": "Build (ci-release-windows)",
+      "configurePreset": "ci-release-windows"
     }
   ],
 
-  "testPresets": []
+  "testPresets": [
+    {
+      "name": "ci-release",
+      "displayName": "CTest (ci common)",
+      "configurePreset": "ci-release",
+      "output": {
+        "outputOnFailure": true,
+        "outputJUnitFile": "ctest-junit.xml"
+      },
+      "jobs": 2,
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "ci-release-windows",
+      "displayName": "CTest (ci windows)",
+      "inherits": "ci",
+      "configurePreset": "ci-release-windows"
+    }
+  ]
 }
